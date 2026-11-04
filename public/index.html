@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pedidos de Açaí mayorista</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header><div class="wrap"><h1>Açaí · Pedidos mayoristas</h1><p>Baldes de açaí con entrega los viernes</p></div></header>
+  <main class="wrap">
+    <section class="card narrow" id="formCard">
+      <h2>Hacé tu pedido</h2>
+      <p class="precio" id="precio">Cargando precio…</p>
+      <form id="form" novalidate>
+        <div class="field"><label for="nombre">Nombre y apellido</label><input id="nombre" name="nombre" autocomplete="name" required></div>
+        <div class="field"><label for="dni">DNI <span class="hint">(solo números)</span></label><input id="dni" name="dni" inputmode="numeric" required></div>
+        <div class="field"><label for="direccion">Dirección de entrega</label><input id="direccion" name="direccion" autocomplete="street-address" required></div>
+        <div class="field"><label for="telefono">Teléfono</label><input id="telefono" name="telefono" type="tel" autocomplete="tel" required></div>
+        <div class="field"><label for="cantidad">Cantidad de baldes</label><input id="cantidad" name="cantidad" type="number" min="1" step="1" value="1" required></div>
+        <button type="submit" id="enviar">Enviar pedido</button>
+        <div id="errores"></div>
+      </form>
+    </section>
+
+    <section class="card narrow resumen" id="confirmacion" hidden>
+      <h2>¡Pedido recibido!</h2>
+      <div class="destacado" id="entrega"></div>
+      <dl id="detalle"></dl>
+      <p class="hint" style="margin-top:16px">Guardá el número de pedido para cualquier consulta.</p>
+      <button class="secundario" id="otro">Hacer otro pedido</button>
+    </section>
+  </main>
+
+<script>
+const $ = s => document.querySelector(s);
+const pesos = n => '$' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fecha = iso => {
+  const d = new Date(iso + 'T12:00:00');
+  return d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+};
+
+fetch('/api/precio').then(r => r.json()).then(d => {
+  $('#precio').textContent = `Precio actual: ${pesos(d.precio_balde)} por balde.`;
+});
+
+$('#form').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('#errores').innerHTML = '';
+  $('#enviar').disabled = true;
+  const data = Object.fromEntries(new FormData(e.target));
+  data.cantidad = Number(data.cantidad);
+  try {
+    const r = await fetch('/api/pedidos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const res = await r.json();
+    if (!r.ok) throw res.errores || ['Error inesperado.'];
+    mostrarConfirmacion(res);
+  } catch (errs) {
+    const lista = Array.isArray(errs) ? errs : ['No se pudo conectar con el servidor.'];
+    const box = document.createElement('div');
+    box.className = 'msg error';
+    const ul = document.createElement('ul');
+    lista.forEach(t => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+    box.appendChild(ul);
+    $('#errores').appendChild(box);
+  } finally {
+    $('#enviar').disabled = false;
+  }
+});
+
+function mostrarConfirmacion(p) {
+  $('#entrega').textContent = `Lo vas a recibir el ${fecha(p.fecha_entrega)}.`;
+  const filas = [
+    ['Pedido N°', '#' + p.pedido_id],
+    ['Cliente', p.cliente.nombre],
+    ['Cantidad', `${p.cantidad} baldes × ${pesos(p.precio_unitario)}`],
+    ['Subtotal', pesos(p.subtotal)],
+  ];
+  if (p.descuento_pct > 0) filas.push([`Descuento ${p.descuento_pct}%`, '−' + pesos(p.descuento_monto)]);
+  filas.push(['Total', pesos(p.total)]);
+  const dl = $('#detalle');
+  dl.innerHTML = '';
+  filas.forEach(([k, v], i) => {
+    const dt = document.createElement('dt'); dt.textContent = k;
+    const dd = document.createElement('dd'); dd.textContent = v;
+    if (i === filas.length - 1) dd.className = 'total';
+    dl.append(dt, dd);
+  });
+  $('#formCard').hidden = true;
+  $('#confirmacion').hidden = false;
+}
+
+$('#otro').addEventListener('click', () => {
+  $('#form').reset();
+  $('#confirmacion').hidden = true;
+  $('#formCard').hidden = false;
+});
+</script>
+</body>
+</html>

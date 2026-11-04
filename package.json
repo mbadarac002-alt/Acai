@@ -1,0 +1,28 @@
+{
+  "name": "acai-pedidos",
+  "version": "1.0.0",
+  "description": "Prototipo de gestión de pedidos mayoristas de baldes de açaí",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mbadarac002-alt/Acai.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mbadarac002-alt/Acai/issues"
+  },
+  "homepage": "https://github.com/mbadarac002-alt/Acai#readme",
+  "dependencies": {
+    "express": "^4.22.3",
+    "nodemailer": "^6.10.1"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

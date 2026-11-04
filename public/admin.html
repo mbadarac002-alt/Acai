@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel del propietario</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header><div class="wrap"><h1>Açaí · Panel del propietario</h1><p><a href="/" style="color:#fff">Ver página de pedidos</a></p></div></header>
+  <main class="wrap">
+    <div class="stats" id="stats"></div>
+    <div class="tabs">
+      <button data-tab="pedidos" class="activo">Pedidos</button>
+      <button data-tab="clientes">Clientes</button>
+      <button data-tab="config">Configuración</button>
+    </div>
+
+    <section class="card" id="tab-pedidos">
+      <h2>Pedidos</h2>
+      <div class="filtros">
+        <label for="filtroEstado" style="margin:0">Estado:</label>
+        <select id="filtroEstado">
+          <option value="">Todos</option>
+          <option value="recibido">Recibido</option>
+          <option value="en_proceso">En proceso</option>
+          <option value="entregado">Entregado</option>
+        </select>
+      </div>
+      <div class="tabla-wrap"><table>
+        <thead><tr><th>#</th><th>Fecha</th><th>Cliente</th><th>DNI</th><th>Teléfono</th><th>Dirección</th><th class="num">Baldes</th><th class="num">Desc.</th><th class="num">Total</th><th>Entrega</th><th>Estado</th></tr></thead>
+        <tbody id="pedidos"></tbody>
+      </table></div>
+      <p class="vacio" id="pedidosVacio" hidden>No hay pedidos.</p>
+    </section>
+
+    <section class="card" id="tab-clientes" hidden>
+      <h2>Clientes</h2>
+      <div class="tabla-wrap"><table>
+        <thead><tr><th>Nombre</th><th>DNI</th><th>Teléfono</th><th>Dirección</th><th>Alta</th><th class="num">Pedidos</th><th class="num">Baldes totales</th><th class="num">Baldes en rango</th><th class="num">Facturado</th></tr></thead>
+        <tbody id="clientes"></tbody>
+      </table></div>
+      <p class="vacio" id="clientesVacio" hidden>No hay clientes registrados.</p>
+    </section>
+
+    <section class="card" id="tab-config" hidden>
+      <h2>Configuración</h2>
+      <form id="configForm" novalidate>
+        <div class="grid">
+          <div class="field"><label for="precio_balde">Precio por balde ($)</label><input id="precio_balde" name="precio_balde" type="number" min="0" step="0.01"></div>
+          <div class="field"><label for="hora_corte">Hora de corte del viernes <span class="hint">pedidos antes de esta hora se entregan ese viernes</span></label><input id="hora_corte" name="hora_corte" type="time"></div>
+          <div class="field"><label for="email_propietario">Email para notificaciones</label><input id="email_propietario" name="email_propietario" type="email"></div>
+        </div>
+        <h2 style="margin-top:10px">Descuento por volumen</h2>
+        <div class="grid">
+          <div class="field"><label for="rango_desde">Acumular desde</label><input id="rango_desde" name="rango_desde" type="date"></div>
+          <div class="field"><label for="rango_hasta">Acumular hasta</label><input id="rango_hasta" name="rango_hasta" type="date"></div>
+          <div class="field"><label for="umbral_baldes">A partir de (baldes acumulados)</label><input id="umbral_baldes" name="umbral_baldes" type="number" min="0" step="1"></div>
+          <div class="field"><label for="descuento_pct">Descuento (%)</label><input id="descuento_pct" name="descuento_pct" type="number" min="0" max="100" step="0.1"></div>
+        </div>
+        <p class="hint">Se suman los baldes de cada cliente en pedidos hechos dentro del rango, incluido el pedido actual. Cuando el total alcanza el umbral, ese pedido y los siguientes dentro del rango llevan el descuento. Sin rango definido no se aplica descuento. Los cambios no modifican pedidos ya registrados.</p>
+        <button type="submit">Guardar configuración</button>
+        <div id="configMsg"></div>
+      </form>
+    </section>
+  </main>
+
+<script>
+const $ = s => document.querySelector(s);
+const pesos = n => '$' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const ddmm = iso => iso ? iso.slice(0, 10).split('-').reverse().join('/') + iso.slice(10) : '';
+const ESTADOS = { recibido: 'Recibido', en_proceso: 'En proceso', entregado: 'Entregado' };
+
+const api = (url, opts = {}) => fetch('/api/admin' + url, {
+  ...opts, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+}).then(async r => { const d = await r.json(); if (!r.ok) throw d.errores || ['Error']; return d; });
+
+function td(text, cls) { const c = document.createElement('td'); c.textContent = text; if (cls) c.className = cls; return c; }
+
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('activo', x === b));
+  ['pedidos', 'clientes', 'config'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
+  if (b.dataset.tab === 'clientes') cargarClientes();
+}));
+
+async function cargarStats() {
+  const todos = await api('/pedidos');
+  const cuenta = e => todos.filter(p => p.estado === e).length;
+  const pendientesBaldes = todos.filter(p => p.estado !== 'entregado').reduce((s, p) => s + p.cantidad, 0);
+  const stats = [
+    [cuenta('recibido'), 'Recibidos'],
+    [cuenta('en_proceso'), 'En proceso'],
+    [cuenta('entregado'), 'Entregados'],
+    [pendientesBaldes, 'Baldes por entregar'],
+  ];
+  const box = $('#stats'); box.innerHTML = '';
+  stats.forEach(([v, l]) => {
+    const d = document.createElement('div'); d.className = 'stat';
+    const a = document.createElement('div'); a.className = 'v'; a.textContent = v;
+    const b = document.createElement('div'); b.className = 'l'; b.textContent = l;
+    d.append(a, b); box.appendChild(d);
+  });
+}
+
+async function cargarPedidos() {
+  const estado = $('#filtroEstado').value;
+  const rows = await api('/pedidos' + (estado ? '?estado=' + estado : ''));
+  const tb = $('#pedidos'); tb.innerHTML = '';
+  $('#pedidosVacio').hidden = rows.length > 0;
+  rows.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.append(td('#' + p.id), td(ddmm(p.creado_en)), td(p.nombre), td(p.dni), td(p.telefono), td(p.direccion),
+      td(p.cantidad, 'num'), td(p.descuento_pct ? p.descuento_pct + '%' : '—', 'num'), td(pesos(p.total), 'num'), td(ddmm(p.fecha_entrega)));
+    const cel = document.createElement('td');
+    const sel = document.createElement('select');
+    Object.entries(ESTADOS).forEach(([v, l]) => { const o = new Option(l, v, false, v === p.estado); sel.add(o); });
+    sel.className = 'badge ' + p.estado;
+    sel.addEventListener('change', async () => {
+      try { await api('/pedidos/' + p.id, { method: 'PATCH', body: JSON.stringify({ estado: sel.value }) }); sel.className = 'badge ' + sel.value; cargarStats(); }
+      catch (e) { alert(e.join('\n')); sel.value = p.estado; }
+    });
+    cel.appendChild(sel); tr.appendChild(cel);
+    tb.appendChild(tr);
+  });
+}
+
+async function cargarClientes() {
+  const rows = await api('/clientes');
+  const tb = $('#clientes'); tb.innerHTML = '';
+  $('#clientesVacio').hidden = rows.length > 0;
+  rows.forEach(c => {
+    const tr = document.createElement('tr');
+    tr.append(td(c.nombre), td(c.dni), td(c.telefono), td(c.direccion), td(ddmm(c.creado_en)),
+      td(c.pedidos, 'num'), td(c.baldes_totales, 'num'), td(c.baldes_en_rango, 'num'), td(pesos(c.facturado), 'num'));
+    tb.appendChild(tr);
+  });
+}
+
+async function cargarConfig() {
+  const c = await api('/config');
+  for (const [k, v] of Object.entries(c)) { const el = document.getElementById(k); if (el) el.value = v; }
+}
+
+$('#configForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = $('#configMsg'); msg.innerHTML = '';
+  const data = Object.fromEntries(new FormData(e.target));
+  const box = document.createElement('div');
+  try {
+    await api('/config', { method: 'PUT', body: JSON.stringify(data) });
+    box.className = 'msg ok'; box.textContent = 'Configuración guardada.';
+    cargarClientes();
+  } catch (errs) {
+    box.className = 'msg error'; box.textContent = errs.join(' ');
+  }
+  msg.appendChild(box);
+});
+
+$('#filtroEstado').addEventListener('change', cargarPedidos);
+cargarStats(); cargarPedidos(); cargarConfig();
+</script>
+</body>
+</html>
