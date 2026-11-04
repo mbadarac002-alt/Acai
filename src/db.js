@@ -2,7 +2,9 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { DatabaseSync } = require('node:sqlite');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'acai.db');
+const DB_PATH = process.env.DB_PATH
+  || (process.env.RAILWAY_VOLUME_MOUNT_PATH && path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'acai.db'))
+  || path.join(__dirname, '..', 'data', 'acai.db');
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 const db = new DatabaseSync(DB_PATH);
@@ -75,4 +77,4 @@ function setConfig(values) {
   }
 }
 
-module.exports = { db, getConfig, setConfig };
+module.exports = { db, DB_PATH, getConfig, setConfig };

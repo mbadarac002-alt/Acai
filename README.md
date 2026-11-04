@@ -36,11 +36,22 @@ npm start
 | `PORT` | Puerto del servidor | `3000` |
 | `ADMIN_USER` / `ADMIN_PASSWORD` | Acceso al panel | `admin` / `admin` |
 | `OWNER_EMAIL` | Email inicial del propietario (después se cambia desde el panel) | — |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `SMTP_FROM` | Servidor de correo | — |
+| `RESEND_API_KEY` | Envío de mails con [Resend](https://resend.com) (recomendado en Railway) | — |
+| `MAIL_FROM` | Remitente de los mails | `Pedidos Acai <onboarding@resend.dev>` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE` | Servidor de correo SMTP (alternativa a Resend) | — |
 | `TZ_NEGOCIO` | Zona horaria para fechas y hora de corte | `America/Argentina/Buenos_Aires` |
-| `DB_PATH` | Archivo SQLite | `data/acai.db` |
+| `DB_PATH` | Archivo SQLite | `data/acai.db`, o `acai.db` dentro del volumen de Railway si hay uno |
 
-Sin SMTP configurado, los mails se guardan como archivos de texto en `data/outbox/` para poder revisarlos.
+Sin Resend ni SMTP configurado, los mails se guardan como archivos de texto en `data/outbox/` para poder revisarlos.
+
+## Publicar en Railway
+
+1. En Railway: **New Project → Deploy from GitHub repo** y elegir este repositorio.
+2. En el servicio, **Settings → Networking → Generate Domain** para obtener el link público.
+3. Clic derecho en el servicio (o `Ctrl+K`) → **Add Volume**, con *mount path* `/data`. Así la base de datos no se borra en cada despliegue.
+4. En **Variables** cargar al menos `ADMIN_PASSWORD`, `OWNER_EMAIL` y, para mails reales, `RESEND_API_KEY`.
+
+Railway bloquea SMTP en sus planes Trial y Hobby, por eso para mails se usa Resend (API por HTTPS).
 
 ## Tests
 
