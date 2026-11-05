@@ -61,7 +61,7 @@ test('flujo completo: alta de cliente, pedido, descuento, estados y mail', async
   assert.deepEqual(enProceso.map(p => p.id), [p1.pedido_id]);
 
   // Mail al propietario (sin SMTP queda en data/outbox)
-  const outbox = path.join(__dirname, '..', 'data', 'outbox');
+  const outbox = path.join(tmp, 'outbox');
   assert.ok(fs.readdirSync(outbox).length >= 2);
 });
 
