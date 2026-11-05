@@ -17,10 +17,28 @@
         <div class="field"><label for="dni">DNI <span class="hint">(solo números)</span></label><input id="dni" name="dni" inputmode="numeric" required></div>
         <div class="field"><label for="direccion">Dirección de entrega</label><input id="direccion" name="direccion" autocomplete="street-address" required></div>
         <div class="field"><label for="telefono">Teléfono</label><input id="telefono" name="telefono" type="tel" autocomplete="tel" required></div>
-        <div class="field"><label for="cantidad">Cantidad de baldes</label><input id="cantidad" name="cantidad" type="number" min="1" step="1" value="1" required></div>
+        <div class="field"><label for="cantidad">Cantidad de baldes</label><input id="cantidad" name="cantidad" type="number" min="1" max="50" step="1" value="1" required></div>
         <button type="submit" id="enviar">Enviar pedido</button>
         <div id="errores"></div>
       </form>
+    </section>
+
+    <section class="card" id="historialCard">
+      <h2>Mis pedidos</h2>
+      <form id="histForm" novalidate>
+        <div class="grid">
+          <div class="field"><label for="hDni">DNI <span class="hint">(solo números)</span></label><input id="hDni" inputmode="numeric" required></div>
+          <div class="field"><label for="hDesde">Pedidos desde</label><input id="hDesde" type="date"></div>
+          <div class="field"><label for="hHasta">Pedidos hasta</label><input id="hHasta" type="date"></div>
+        </div>
+        <button type="submit" class="secundario">Ver mis pedidos</button>
+        <div id="histErrores"></div>
+      </form>
+      <div class="tabla-wrap" id="histWrap" hidden><table>
+        <thead><tr><th>#</th><th>Fecha</th><th class="num">Baldes</th><th class="num">Desc.</th><th class="num">Total</th><th>Entrega</th><th>Estado</th></tr></thead>
+        <tbody id="histBody"></tbody>
+      </table></div>
+      <p class="vacio" id="histVacio" hidden>No se encontraron pedidos.</p>
     </section>
 
     <section class="card narrow resumen" id="confirmacion" hidden>
@@ -89,6 +107,36 @@ function mostrarConfirmacion(p) {
   $('#formCard').hidden = true;
   $('#confirmacion').hidden = false;
 }
+
+const ESTADOS = { recibido: 'Recibido', en_proceso: 'En proceso', entregado: 'Entregado' };
+const ddmm = iso => iso.split('-').reverse().join('/');
+function celda(texto, cls) { const c = document.createElement('td'); c.textContent = texto; if (cls) c.className = cls; return c; }
+
+$('#histForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const errBox = $('#histErrores'); errBox.innerHTML = '';
+  $('#histWrap').hidden = true; $('#histVacio').hidden = true;
+  const q = new URLSearchParams({ dni: $('#hDni').value, desde: $('#hDesde').value, hasta: $('#hHasta').value });
+  try {
+    const r = await fetch('/api/mis-pedidos?' + q);
+    const rows = await r.json();
+    if (!r.ok) throw rows.errores || ['Error inesperado.'];
+    const tb = $('#histBody'); tb.innerHTML = '';
+    rows.forEach(p => {
+      const tr = document.createElement('tr');
+      tr.append(celda('#' + p.id), celda(ddmm(p.fecha_pedido)), celda(p.cantidad, 'num'),
+        celda(p.descuento_pct ? p.descuento_pct + '%' : '—', 'num'), celda(pesos(p.total), 'num'),
+        celda(ddmm(p.fecha_entrega)), celda(ESTADOS[p.estado] || p.estado));
+      tb.appendChild(tr);
+    });
+    $('#histWrap').hidden = rows.length === 0;
+    $('#histVacio').hidden = rows.length > 0;
+  } catch (errs) {
+    const box = document.createElement('div'); box.className = 'msg error';
+    box.textContent = Array.isArray(errs) ? errs.join(' ') : 'No se pudo conectar con el servidor.';
+    errBox.appendChild(box);
+  }
+});
 
 $('#otro').addEventListener('click', () => {
   $('#form').reset();

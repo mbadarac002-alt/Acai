@@ -1,16 +1,18 @@
 const path = require('node:path');
 const express = require('express');
 const { db, getConfig, setConfig } = require('./db');
-const { ahoraLocal, calcularFechaEntrega, calcularPrecio } = require('./reglas');
+const { ahoraLocal, calcularFechaEntrega, calcularPrecio, mesDe } =require('./reglas');
 const { enviarMail } = require('./mailer');
 
 const app = express();
 app.use(express.json());
 
 const ESTADOS = ['recibido', 'en_proceso', 'entregado'];
+const MAX_BALDES = 50;
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
 
+const normalizarTexto = s => String(s).normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 const fmtPesos = n => '$' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtFecha = iso => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
 
@@ -46,7 +48,7 @@ app.post('/api/pedidos', async (req, res) => {
   if (!/^\d{7,9}$/.test(dni)) errores.push('El DNI debe tener entre 7 y 9 dígitos.');
   if (!direccion) errores.push('La dirección es obligatoria.');
   if (!/^[\d\s+()-]{6,}$/.test(telefono)) errores.push('El teléfono no es válido.');
-  if (!Number.isInteger(cantidad) || cantidad < 1) errores.push('La cantidad de baldes debe ser un número entero mayor a 0.');
+  if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > MAX_BALDES) errores.push(`La cantidad de baldes debe ser un número entero mayor a 0 y hasta ${MAX_BALDES}.`);
   if (errores.length) return res.status(400).json({ errores });
 
   const config = getConfig();
@@ -67,14 +69,11 @@ app.post('/api/pedidos', async (req, res) => {
         .run(nombre, direccion, telefono, cliente.id);
     }
 
-    // 2. Precio y descuento según baldes acumulados en el rango vigente.
-    let baldesPrevios = 0;
-    if (config.rango_desde && config.rango_hasta) {
-      baldesPrevios = db.prepare(
-        'SELECT COALESCE(SUM(cantidad), 0) AS total FROM pedidos WHERE cliente_id = ? AND fecha_pedido BETWEEN ? AND ?'
-      ).get(cliente.id, config.rango_desde, config.rango_hasta).total;
-    }
-    const precio = calcularPrecio({ cantidad, fechaPedido: ahora.fecha, baldesPrevios, config });
+    // 2. Precio y descuento según baldes acumulados en el mes calendario actual.
+    const baldesPrevios = db.prepare(
+      'SELECT COALESCE(SUM(cantidad), 0) AS total FROM pedidos WHERE cliente_id = ? AND substr(fecha_pedido, 1, 7) = ?'
+    ).get(cliente.id, mesDe(ahora.fecha)).total;
+    const precio = calcularPrecio({ cantidad, baldesPrevios, config });
     const fechaEntrega = calcularFechaEntrega(ahora, config.hora_corte);
 
     // 3. Registrar el pedido.
@@ -125,6 +124,31 @@ app.post('/api/pedidos', async (req, res) => {
   res.status(201).json(resultado);
 });
 
+// Historial de pedidos del cliente, identificado por DNI, con filtro opcional por fecha del pedido.
+app.get('/api/mis-pedidos', (req, res) => {
+  const dni = String(req.query.dni || '').replace(/\D/g, '');
+  const desde = String(req.query.desde || '');
+  const hasta = String(req.query.hasta || '');
+  const errores = [];
+  if (!/^\d{7,9}$/.test(dni)) errores.push('El DNI debe tener entre 7 y 9 dígitos.');
+  const fechaOk = f => f === '' || (/^\d{4}-\d{2}-\d{2}$/.test(f) && !Number.isNaN(Date.parse(f + 'T00:00:00Z')));
+  if (!fechaOk(desde) || !fechaOk(hasta)) errores.push('Las fechas deben tener formato AAAA-MM-DD.');
+  else if (desde && hasta && desde > hasta) errores.push('La fecha "desde" debe ser anterior o igual a "hasta".');
+  if (errores.length) return res.status(400).json({ errores });
+
+  const where = ['c.dni = ?'];
+  const params = [dni];
+  if (desde) { where.push('p.fecha_pedido >= ?'); params.push(desde); }
+  if (hasta) { where.push('p.fecha_pedido <= ?'); params.push(hasta); }
+  const rows = db.prepare(`
+    SELECT p.id, p.fecha_pedido, p.cantidad, p.precio_unitario, p.subtotal, p.descuento_pct,
+           p.descuento_monto, p.total, p.fecha_entrega, p.estado
+    FROM pedidos p JOIN clientes c ON c.id = p.cliente_id
+    WHERE ${where.join(' AND ')}
+    ORDER BY p.id DESC`).all(...params);
+  res.json(rows);
+});
+
 // ---------- API del panel del propietario ----------
 const admin = express.Router();
 admin.use(requireAdmin);
@@ -138,10 +162,6 @@ admin.put('/config', (req, res) => {
   if (!(Number.isInteger(Number(b.umbral_baldes)) && Number(b.umbral_baldes) >= 0)) errores.push('El umbral debe ser un entero mayor o igual a 0.');
   if (!(Number(b.descuento_pct) >= 0 && Number(b.descuento_pct) <= 100)) errores.push('El descuento debe estar entre 0 y 100%.');
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.hora_corte || '')) errores.push('La hora de corte debe tener formato HH:MM.');
-  const fechaOk = f => f === '' || /^\d{4}-\d{2}-\d{2}$/.test(f);
-  if (!fechaOk(b.rango_desde || '') || !fechaOk(b.rango_hasta || '')) errores.push('Fechas del rango inválidas.');
-  if (!!b.rango_desde !== !!b.rango_hasta) errores.push('Complete ambas fechas del rango (o ninguna).');
-  if (b.rango_desde && b.rango_hasta && b.rango_desde > b.rango_hasta) errores.push('La fecha "desde" debe ser anterior a "hasta".');
   if (b.email_propietario && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(b.email_propietario)) errores.push('Email del propietario inválido.');
   if (errores.length) return res.status(400).json({ errores });
 
@@ -149,8 +169,6 @@ admin.put('/config', (req, res) => {
     precio_balde: Number(b.precio_balde),
     umbral_baldes: Number(b.umbral_baldes),
     descuento_pct: Number(b.descuento_pct),
-    rango_desde: b.rango_desde || '',
-    rango_hasta: b.rango_hasta || '',
     hora_corte: b.hora_corte,
     email_propietario: b.email_propietario || '',
   });
@@ -158,14 +176,45 @@ admin.put('/config', (req, res) => {
 });
 
 admin.get('/pedidos', (req, res) => {
-  const { estado } = req.query;
-  const where = ESTADOS.includes(estado) ? 'WHERE p.estado = ?' : '';
-  const params = where ? [estado] : [];
-  const rows = db.prepare(`
+  const q = k => String(req.query[k] || '').trim();
+  const estado = q('estado');
+  const dni = q('dni').replace(/\D/g, '');
+  const nombre = q('nombre');
+  const descuento = q('descuento');
+  const fechas = { desde: q('desde'), hasta: q('hasta'), entrega_desde: q('entrega_desde'), entrega_hasta: q('entrega_hasta') };
+
+  const errores = [];
+  if (estado && !ESTADOS.includes(estado)) errores.push('Estado inválido.');
+  if (descuento && !['con', 'sin'].includes(descuento)) errores.push('Filtro de descuento inválido.');
+  for (const [k, v] of Object.entries(fechas)) {
+    if (v && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v + 'T00:00:00Z')))) errores.push(`Fecha inválida (${k}).`);
+  }
+  if (fechas.desde && fechas.hasta && fechas.desde > fechas.hasta) errores.push('"Pedido desde" debe ser anterior o igual a "pedido hasta".');
+  if (fechas.entrega_desde && fechas.entrega_hasta && fechas.entrega_desde > fechas.entrega_hasta) errores.push('"Entrega desde" debe ser anterior o igual a "entrega hasta".');
+  if (errores.length) return res.status(400).json({ errores });
+
+  const esc = s => s.replace(/[\\%_]/g, '\\$&');
+  const where = [];
+  const params = [];
+  if (estado) { where.push('p.estado = ?'); params.push(estado); }
+  if (dni) { where.push("c.dni LIKE ? ESCAPE '\\'"); params.push(`%${esc(dni)}%`); }
+  if (fechas.desde) { where.push('p.fecha_pedido >= ?'); params.push(fechas.desde); }
+  if (fechas.hasta) { where.push('p.fecha_pedido <= ?'); params.push(fechas.hasta); }
+  if (fechas.entrega_desde) { where.push('p.fecha_entrega >= ?'); params.push(fechas.entrega_desde); }
+  if (fechas.entrega_hasta) { where.push('p.fecha_entrega <= ?'); params.push(fechas.entrega_hasta); }
+  if (descuento === 'con') where.push('p.descuento_pct > 0');
+  if (descuento === 'sin') where.push('p.descuento_pct = 0');
+
+  let rows = db.prepare(`
     SELECT p.*, c.nombre, c.dni, c.telefono, c.direccion
     FROM pedidos p JOIN clientes c ON c.id = p.cliente_id
-    ${where}
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY p.id DESC`).all(...params);
+  // El nombre se compara sin mayúsculas ni acentos (SQLite no los normaliza), por eso se filtra acá.
+  if (nombre) {
+    const buscado = normalizarTexto(nombre);
+    rows = rows.filter(r => normalizarTexto(r.nombre).includes(buscado));
+  }
   res.json(rows);
 });
 
@@ -180,16 +229,16 @@ admin.patch('/pedidos/:id', (req, res) => {
 });
 
 admin.get('/clientes', (req, res) => {
-  const c = getConfig();
+  const mes = mesDe(ahoraLocal().fecha);
   const rows = db.prepare(`
     SELECT c.*,
            COUNT(p.id) AS pedidos,
            COALESCE(SUM(p.cantidad), 0) AS baldes_totales,
-           COALESCE(SUM(CASE WHEN p.fecha_pedido BETWEEN ? AND ? THEN p.cantidad END), 0) AS baldes_en_rango,
+           COALESCE(SUM(CASE WHEN substr(p.fecha_pedido, 1, 7) = ? THEN p.cantidad END), 0) AS baldes_mes,
            COALESCE(SUM(p.total), 0) AS facturado
     FROM clientes c LEFT JOIN pedidos p ON p.cliente_id = c.id
     GROUP BY c.id
-    ORDER BY c.nombre`).all(c.rango_desde || '9999-12-31', c.rango_hasta || '0000-01-01');
+    ORDER BY c.nombre`).all(mes);
   res.json(rows);
 });
 

@@ -38,20 +38,19 @@ function calcularFechaEntrega({ fecha, hora, diaSemana }, horaCorte) {
   return sumarDias(fecha, dias);
 }
 
-function dentroDelRango(fecha, desde, hasta) {
-  if (!desde || !hasta) return false;
-  return fecha >= desde && fecha <= hasta;
+/** Mes calendario ('YYYY-MM') de una fecha 'YYYY-MM-DD'. */
+function mesDe(fechaISO) {
+  return fechaISO.slice(0, 7);
 }
 
 /**
  * Calcula precio y descuento.
- * baldesPrevios: baldes del cliente en pedidos anteriores dentro del rango vigente.
+ * baldesPrevios: baldes del cliente en pedidos anteriores del mismo mes calendario.
  * El pedido actual cuenta para llegar al umbral; el descuento se aplica al total del pedido.
  */
-function calcularPrecio({ cantidad, fechaPedido, baldesPrevios, config }) {
-  const enRango = dentroDelRango(fechaPedido, config.rango_desde, config.rango_hasta);
-  const acumulados = enRango ? baldesPrevios + cantidad : cantidad;
-  const aplica = enRango && config.umbral_baldes > 0 && acumulados >= config.umbral_baldes;
+function calcularPrecio({ cantidad, baldesPrevios, config }) {
+  const acumulados = baldesPrevios + cantidad;
+  const aplica = config.umbral_baldes > 0 && acumulados >= config.umbral_baldes;
   const subtotal = round2(cantidad * config.precio_balde);
   const descuentoPct = aplica ? config.descuento_pct : 0;
   const descuentoMonto = round2(subtotal * descuentoPct / 100);
@@ -62,10 +61,9 @@ function calcularPrecio({ cantidad, fechaPedido, baldesPrevios, config }) {
     descuento_pct: descuentoPct,
     descuento_monto: descuentoMonto,
     total: round2(subtotal - descuentoMonto),
-    en_rango: enRango,
   };
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }
 
-module.exports = { TZ, ahoraLocal, sumarDias, calcularFechaEntrega, dentroDelRango, calcularPrecio };
+module.exports = { TZ, ahoraLocal, sumarDias, calcularFechaEntrega, mesDe, calcularPrecio };

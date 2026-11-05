@@ -18,15 +18,32 @@
 
     <section class="card" id="tab-pedidos">
       <h2>Pedidos</h2>
-      <div class="filtros">
-        <label for="filtroEstado" style="margin:0">Estado:</label>
-        <select id="filtroEstado">
-          <option value="">Todos</option>
-          <option value="recibido">Recibido</option>
-          <option value="en_proceso">En proceso</option>
-          <option value="entregado">Entregado</option>
-        </select>
-      </div>
+      <form id="filtros" novalidate>
+        <div class="grid">
+          <div class="field"><label for="f_dni">DNI</label><input id="f_dni" name="dni" inputmode="numeric" placeholder="Parte del DNI"></div>
+          <div class="field"><label for="f_nombre">Cliente</label><input id="f_nombre" name="nombre" placeholder="Parte del nombre"></div>
+          <div class="field"><label for="f_estado">Estado</label>
+            <select id="f_estado" name="estado">
+              <option value="">Todos</option>
+              <option value="recibido">Recibido</option>
+              <option value="en_proceso">En proceso</option>
+              <option value="entregado">Entregado</option>
+            </select></div>
+          <div class="field"><label for="f_descuento">Descuento</label>
+            <select id="f_descuento" name="descuento">
+              <option value="">Todos</option>
+              <option value="con">Con descuento</option>
+              <option value="sin">Sin descuento</option>
+            </select></div>
+          <div class="field"><label for="f_desde">Pedido desde</label><input id="f_desde" name="desde" type="date"></div>
+          <div class="field"><label for="f_hasta">Pedido hasta</label><input id="f_hasta" name="hasta" type="date"></div>
+          <div class="field"><label for="f_entrega_desde">Entrega desde</label><input id="f_entrega_desde" name="entrega_desde" type="date"></div>
+          <div class="field"><label for="f_entrega_hasta">Entrega hasta</label><input id="f_entrega_hasta" name="entrega_hasta" type="date"></div>
+        </div>
+        <button type="button" class="secundario" id="limpiarFiltros">Limpiar filtros</button>
+        <div id="filtrosMsg"></div>
+      </form>
+      <p class="hint" id="resumen" style="margin-top:12px"></p>
       <div class="tabla-wrap"><table>
         <thead><tr><th>#</th><th>Fecha</th><th>Cliente</th><th>DNI</th><th>Teléfono</th><th>Dirección</th><th class="num">Baldes</th><th class="num">Desc.</th><th class="num">Total</th><th>Entrega</th><th>Estado</th></tr></thead>
         <tbody id="pedidos"></tbody>
@@ -37,7 +54,7 @@
     <section class="card" id="tab-clientes" hidden>
       <h2>Clientes</h2>
       <div class="tabla-wrap"><table>
-        <thead><tr><th>Nombre</th><th>DNI</th><th>Teléfono</th><th>Dirección</th><th>Alta</th><th class="num">Pedidos</th><th class="num">Baldes totales</th><th class="num">Baldes en rango</th><th class="num">Facturado</th></tr></thead>
+        <thead><tr><th>Nombre</th><th>DNI</th><th>Teléfono</th><th>Dirección</th><th>Alta</th><th class="num">Pedidos</th><th class="num">Baldes totales</th><th class="num">Baldes este mes</th><th class="num">Facturado</th></tr></thead>
         <tbody id="clientes"></tbody>
       </table></div>
       <p class="vacio" id="clientesVacio" hidden>No hay clientes registrados.</p>
@@ -53,12 +70,10 @@
         </div>
         <h2 style="margin-top:10px">Descuento por volumen</h2>
         <div class="grid">
-          <div class="field"><label for="rango_desde">Acumular desde</label><input id="rango_desde" name="rango_desde" type="date"></div>
-          <div class="field"><label for="rango_hasta">Acumular hasta</label><input id="rango_hasta" name="rango_hasta" type="date"></div>
-          <div class="field"><label for="umbral_baldes">A partir de (baldes acumulados)</label><input id="umbral_baldes" name="umbral_baldes" type="number" min="0" step="1"></div>
+          <div class="field"><label for="umbral_baldes">A partir de (baldes en el mes)</label><input id="umbral_baldes" name="umbral_baldes" type="number" min="0" step="1"></div>
           <div class="field"><label for="descuento_pct">Descuento (%)</label><input id="descuento_pct" name="descuento_pct" type="number" min="0" max="100" step="0.1"></div>
         </div>
-        <p class="hint">Se suman los baldes de cada cliente en pedidos hechos dentro del rango, incluido el pedido actual. Cuando el total alcanza el umbral, ese pedido y los siguientes dentro del rango llevan el descuento. Sin rango definido no se aplica descuento. Los cambios no modifican pedidos ya registrados.</p>
+        <p class="hint">Se suman los baldes de cada cliente en pedidos hechos durante el mes calendario, incluido el pedido actual. Cuando el total alcanza el umbral, ese pedido y los siguientes de ese mes llevan el descuento. El conteo se reinicia el día 1 de cada mes. Con umbral 0 no se aplica descuento. Los cambios no modifican pedidos ya registrados.</p>
         <button type="submit">Guardar configuración</button>
         <div id="configMsg"></div>
       </form>
@@ -103,10 +118,20 @@ async function cargarStats() {
 }
 
 async function cargarPedidos() {
-  const estado = $('#filtroEstado').value;
-  const rows = await api('/pedidos' + (estado ? '?estado=' + estado : ''));
+  const params = new URLSearchParams();
+  new FormData($('#filtros')).forEach((v, k) => { if (String(v).trim()) params.set(k, v); });
+  const msg = $('#filtrosMsg'); msg.innerHTML = '';
+  let rows;
+  try { rows = await api('/pedidos' + (params.size ? '?' + params : '')); }
+  catch (errs) {
+    const box = document.createElement('div'); box.className = 'msg error'; box.textContent = errs.join(' ');
+    msg.appendChild(box); return;
+  }
   const tb = $('#pedidos'); tb.innerHTML = '';
   $('#pedidosVacio').hidden = rows.length > 0;
+  const baldes = rows.reduce((s, p) => s + p.cantidad, 0);
+  const total = rows.reduce((s, p) => s + p.total, 0);
+  $('#resumen').textContent = `${rows.length} pedido(s) · ${baldes} baldes · ${pesos(total)}`;
   rows.forEach(p => {
     const tr = document.createElement('tr');
     tr.append(td('#' + p.id), td(ddmm(p.creado_en)), td(p.nombre), td(p.dni), td(p.telefono), td(p.direccion),
@@ -131,7 +156,7 @@ async function cargarClientes() {
   rows.forEach(c => {
     const tr = document.createElement('tr');
     tr.append(td(c.nombre), td(c.dni), td(c.telefono), td(c.direccion), td(ddmm(c.creado_en)),
-      td(c.pedidos, 'num'), td(c.baldes_totales, 'num'), td(c.baldes_en_rango, 'num'), td(pesos(c.facturado), 'num'));
+      td(c.pedidos, 'num'), td(c.baldes_totales, 'num'), td(c.baldes_mes, 'num'), td(pesos(c.facturado), 'num'));
     tb.appendChild(tr);
   });
 }
@@ -156,7 +181,10 @@ $('#configForm').addEventListener('submit', async e => {
   msg.appendChild(box);
 });
 
-$('#filtroEstado').addEventListener('change', cargarPedidos);
+let debounce;
+$('#filtros').addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(cargarPedidos, 250); });
+$('#filtros').addEventListener('submit', e => e.preventDefault());
+$('#limpiarFiltros').addEventListener('click', () => { $('#filtros').reset(); cargarPedidos(); });
 cargarStats(); cargarPedidos(); cargarConfig();
 </script>
 </body>

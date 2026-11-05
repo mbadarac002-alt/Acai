@@ -46,8 +46,6 @@ const DEFAULTS = {
   precio_balde: '10000',
   umbral_baldes: '20',
   descuento_pct: '10',
-  rango_desde: '',
-  rango_hasta: '',
   hora_corte: '12:00',
   email_propietario: process.env.OWNER_EMAIL || '',
 };
@@ -61,8 +59,6 @@ function getConfig() {
     precio_balde: Number(c.precio_balde),
     umbral_baldes: Number(c.umbral_baldes),
     descuento_pct: Number(c.descuento_pct),
-    rango_desde: c.rango_desde || '',
-    rango_hasta: c.rango_hasta || '',
     hora_corte: c.hora_corte || '12:00',
     email_propietario: c.email_propietario || '',
   };

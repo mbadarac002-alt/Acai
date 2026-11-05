@@ -16,17 +16,25 @@ npm start
 
 ## Funcionamiento
 
-1. El cliente completa nombre, DNI, dirección, teléfono y cantidad de baldes.
+1. El cliente completa nombre, DNI, dirección, teléfono y cantidad de baldes (mayor a 0 y hasta 50).
 2. Si es su primer pedido (DNI nuevo), se registra en la base de **clientes**. Si ya existía, se actualizan sus datos de contacto.
 3. Se registra el pedido en la base de **pedidos** con estado *Recibido*.
 4. Se le muestra al cliente la fecha de entrega y el precio.
 5. Se envía un mail al propietario.
 
+### Historial del cliente
+
+En la página de pedidos, la sección **Mis pedidos** permite consultar el historial ingresando solo el DNI, con filtro opcional por rango de fechas del pedido (desde/hasta, inclusivos). Se muestran número, fecha, baldes, descuento, total, fecha de entrega y estado. Nota: al identificarse solo por DNI, cualquiera que conozca un DNI puede ver los pedidos asociados.
+
+### Filtros del panel
+
+En la pestaña **Pedidos** del panel, el propietario puede filtrar (criterios combinables, se aplican al escribir) por DNI, nombre del cliente (sin distinguir mayúsculas ni acentos), estado, con/sin descuento, rango de fecha del pedido y rango de fecha de entrega. Se muestra un resumen de los resultados: cantidad de pedidos, baldes y total.
+
 ### Reglas
 
 - **Precio:** precio por balde definido en el panel. Cada pedido guarda el precio del momento en que se hizo.
 - **Entrega:** el viernes más cercano. Un pedido hecho un viernes antes de la hora de corte se entrega ese mismo día; si se hace después, el viernes siguiente.
-- **Descuento:** el propietario define un rango de fechas, un umbral de baldes y un porcentaje. Se suman los baldes del cliente en pedidos dentro del rango, incluido el pedido actual. Si el total alcanza el umbral, el descuento se aplica al total de ese pedido y de los siguientes dentro del rango.
+- **Descuento:** el propietario define un umbral de baldes y un porcentaje. Se suman los baldes del cliente en pedidos del mes calendario en curso, incluido el pedido actual. Si el total alcanza el umbral, el descuento se aplica al total de ese pedido y de los siguientes de ese mes. El conteo se reinicia el día 1 de cada mes.
 - **Estados:** Recibido → En proceso → Entregado (se cambian desde el panel).
 
 ## Configuración (variables de entorno)
