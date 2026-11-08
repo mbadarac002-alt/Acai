@@ -9,6 +9,7 @@ process.env.DB_PATH = path.join(tmp, 'test.db');
 process.env.OWNER_EMAIL = 'dueno@example.com';
 const app = require('../src/server');
 const { ahoraLocal } = require('../src/reglas');
+const { DB_PATH } = require('../src/db');
 
 let base, server;
 const auth = 'Basic ' + Buffer.from('admin:admin').toString('base64');
@@ -136,6 +137,117 @@ test('panel: filtros de pedidos', async () => {
   assert.equal((await adm('/pedidos?desde=2026-12-01&hasta=2026-11-01')).status, 400);
   assert.equal((await adm('/pedidos?entrega_desde=mañana')).status, 400);
   assert.equal((await adm('/pedidos?descuento=tal')).status, 400);
+});
+
+test('comentarios del pedido: validación, historial, mail y filtro del panel', async () => {
+  const otro = { nombre: 'María Núñez', dni: '27111222', direccion: 'Calle 2', telefono: '11 3333-4444' };
+  const largo = 'x'.repeat(301);
+  assert.equal((await post('/api/pedidos', { ...otro, cantidad: 1, comentarios: largo })).status, 400);
+
+  // Sin comentarios: queda vacío
+  let r = await post('/api/pedidos', { ...otro, cantidad: 1 });
+  assert.equal(r.status, 201);
+  assert.equal((await r.json()).comentarios, '');
+
+  // Con comentarios (se recortan espacios; 300 caracteres exactos es válido)
+  r = await post('/api/pedidos', { ...otro, cantidad: 2, comentarios: '  Tocar timbre 2B <b>fuerte</b>  ' });
+  assert.equal(r.status, 201);
+  const p = await r.json();
+  assert.equal(p.comentarios, 'Tocar timbre 2B <b>fuerte</b>');
+  assert.equal((await post('/api/pedidos', { ...otro, cantidad: 1, comentarios: 'y'.repeat(300) })).status, 201);
+
+  // Historial del cliente
+  const hist = await (await fetch(`${base}/api/mis-pedidos?dni=${otro.dni}`)).json();
+  assert.equal(hist.find(h => h.id === p.pedido_id).comentarios, 'Tocar timbre 2B <b>fuerte</b>');
+
+  // Filtro del panel: sin distinguir mayúsculas ni acentos, y combinable
+  const ids = async qs => (await (await adm('/pedidos' + qs)).json()).map(x => x.id);
+  assert.deepEqual(await ids('?comentario=TIMBRE'), [p.pedido_id]);
+  assert.deepEqual(await ids('?comentario=timbre&nombre=nunez'), [p.pedido_id]);
+  assert.deepEqual(await ids('?comentario=timbre&nombre=ana'), []);
+  assert.deepEqual(await ids('?comentario=noexiste'), []);
+  const fila = (await (await adm('/pedidos?comentario=timbre')).json())[0];
+  assert.equal(fila.comentarios, 'Tocar timbre 2B <b>fuerte</b>');
+});
+
+test('notificaciones: canal mail / whatsapp / ambos y validaciones', async () => {
+  const base0 = { precio_balde: 1000, umbral_baldes: 10, descuento_pct: 15, hora_corte: '12:00', email_propietario: 'dueno@example.com' };
+  const outbox = path.join(path.dirname(DB_PATH), 'outbox');
+  const mails = () => fs.existsSync(outbox) ? fs.readdirSync(outbox).length : 0;
+
+  // Intercepta solo las llamadas a CallMeBot; el resto va al servidor de test.
+  const realFetch = global.fetch;
+  const llamadas = [];
+  let fallar = false;
+  global.fetch = (url, opts) => {
+    if (String(url).startsWith('https://api.callmebot.com/')) {
+      llamadas.push(new URL(url));
+      return Promise.resolve(new Response(fallar ? 'error' : 'Message queued', { status: fallar ? 500 : 200 }));
+    }
+    return realFetch(url, opts);
+  };
+  try {
+    const pedir = async () => (await post('/api/pedidos', { ...cliente, cantidad: 1 })).status;
+
+    // Validaciones
+    let r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'whatsapp' });
+    assert.equal(r.status, 400, 'WhatsApp sin teléfono ni key');
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'sms' });
+    assert.equal(r.status, 400, 'canal inválido');
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'ambos', telefono_propietario: '12345', callmebot_apikey: 'k1' });
+    assert.equal(r.status, 400, 'teléfono sin formato internacional');
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'mail', email_propietario: '' });
+    assert.equal(r.status, 400, 'mail sin email');
+
+    // Solo WhatsApp: no hay mail, hay una llamada a CallMeBot
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'whatsapp', telefono_propietario: '+54 9 11 1234-5678', callmebot_apikey: 'key1' });
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).telefono_propietario, '+5491112345678');
+    let m0 = mails();
+    assert.equal(await pedir(), 201);
+    assert.equal(mails(), m0, 'solo whatsapp: no se manda mail');
+    assert.equal(llamadas.length, 1);
+    assert.equal(llamadas[0].searchParams.get('phone'), '+5491112345678');
+    assert.equal(llamadas[0].searchParams.get('apikey'), 'key1');
+    assert.match(llamadas[0].searchParams.get('text'), /Nuevo pedido #\d+/);
+
+    // Solo mail: no hay llamada a CallMeBot
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'mail' });
+    assert.equal(r.status, 200);
+    m0 = mails();
+    assert.equal(await pedir(), 201);
+    assert.equal(mails(), m0 + 1);
+    assert.equal(llamadas.length, 1);
+
+    // Ambos
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'ambos' });
+    assert.equal(r.status, 200);
+    m0 = mails();
+    assert.equal(await pedir(), 201);
+    assert.equal(mails(), m0 + 1);
+    assert.equal(llamadas.length, 2);
+
+    // Si WhatsApp falla, el pedido y el mail igual se registran
+    fallar = true;
+    m0 = mails();
+    assert.equal(await pedir(), 201);
+    assert.equal(mails(), m0 + 1);
+    fallar = false;
+
+    // Cambiar el teléfono exige una API key nueva
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'ambos', telefono_propietario: '+5491199999999', callmebot_apikey: 'key1' });
+    assert.equal(r.status, 400);
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'ambos', telefono_propietario: '+5491199999999', callmebot_apikey: 'key2' });
+    assert.equal(r.status, 200);
+
+    // Un PUT sin los campos de notificación conserva los valores actuales
+    r = await adm('/config', 'PUT', base0);
+    const cfg = await r.json();
+    assert.equal(cfg.canal_notificacion, 'ambos');
+    assert.equal(cfg.telefono_propietario, '+5491199999999');
+  } finally {
+    global.fetch = realFetch;
+  }
 });
 
 test('el panel requiere autenticación', async () => {

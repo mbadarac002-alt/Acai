@@ -22,6 +22,7 @@
         <div class="grid">
           <div class="field"><label for="f_dni">DNI</label><input id="f_dni" name="dni" inputmode="numeric" placeholder="Parte del DNI"></div>
           <div class="field"><label for="f_nombre">Cliente</label><input id="f_nombre" name="nombre" placeholder="Parte del nombre"></div>
+          <div class="field"><label for="f_comentario">Comentario</label><input id="f_comentario" name="comentario" placeholder="Texto dentro del comentario"></div>
           <div class="field"><label for="f_estado">Estado</label>
             <select id="f_estado" name="estado">
               <option value="">Todos</option>
@@ -45,7 +46,7 @@
       </form>
       <p class="hint" id="resumen" style="margin-top:12px"></p>
       <div class="tabla-wrap"><table>
-        <thead><tr><th>#</th><th>Fecha</th><th>Cliente</th><th>DNI</th><th>Teléfono</th><th>Dirección</th><th class="num">Baldes</th><th class="num">Desc.</th><th class="num">Total</th><th>Entrega</th><th>Estado</th></tr></thead>
+        <thead><tr><th>#</th><th>Fecha</th><th>Cliente</th><th>DNI</th><th>Teléfono</th><th>Dirección</th><th class="num">Baldes</th><th class="num">Desc.</th><th class="num">Total</th><th>Entrega</th><th>Comentarios</th><th>Estado</th></tr></thead>
         <tbody id="pedidos"></tbody>
       </table></div>
       <p class="vacio" id="pedidosVacio" hidden>No hay pedidos.</p>
@@ -66,8 +67,30 @@
         <div class="grid">
           <div class="field"><label for="precio_balde">Precio por balde ($)</label><input id="precio_balde" name="precio_balde" type="number" min="0" step="0.01"></div>
           <div class="field"><label for="hora_corte">Hora de corte del viernes <span class="hint">pedidos antes de esta hora se entregan ese viernes</span></label><input id="hora_corte" name="hora_corte" type="time"></div>
-          <div class="field"><label for="email_propietario">Email para notificaciones</label><input id="email_propietario" name="email_propietario" type="email"></div>
         </div>
+        <h2 style="margin-top:10px">Notificaciones de nuevos pedidos</h2>
+        <div class="grid">
+          <div class="field"><label for="canal_notificacion">Quiero recibir los avisos por</label>
+            <select id="canal_notificacion" name="canal_notificacion">
+              <option value="mail">Mail</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="ambos">Mail y WhatsApp</option>
+            </select></div>
+          <div class="field"><label for="email_propietario">Email</label><input id="email_propietario" name="email_propietario" type="email" autocomplete="off"></div>
+          <div class="field"><label for="telefono_propietario">Teléfono de WhatsApp <span class="hint">formato internacional, ej. +5491112345678</span></label><input id="telefono_propietario" name="telefono_propietario" type="tel" autocomplete="off"></div>
+          <div class="field"><label for="callmebot_apikey">API key de CallMeBot</label><input id="callmebot_apikey" name="callmebot_apikey" type="password" autocomplete="off"></div>
+        </div>
+        <details class="hint" style="margin:6px 0 14px">
+          <summary><strong>Cómo cambiar el mail o el celular</strong></summary>
+          <p><strong>Cambiar el mail:</strong> escribir el email nuevo en el campo "Email" y guardar. Desde el próximo pedido los avisos llegan a esa dirección. Importante: mientras la aplicación use el remitente de prueba de Resend (<code>onboarding@resend.dev</code>), solo se entregan mails a la dirección con la que se registró la cuenta de Resend. Si el mail nuevo es otro, hay que registrar la cuenta de Resend con ese mail (nueva API key en la variable <code>RESEND_API_KEY</code> de Railway) o verificar un dominio propio en Resend y actualizar <code>MAIL_FROM</code>.</p>
+          <p><strong>Cambiar el celular (WhatsApp):</strong> la API key de CallMeBot está atada al número, así que hay que sacar una nueva.</p>
+          <ol>
+            <li>Desde el WhatsApp del <strong>número nuevo</strong>, enviar el mensaje <code>I allow callmebot to send me messages</code> al número del bot que figura en callmebot.com (sección WhatsApp).</li>
+            <li>CallMeBot responde con una <strong>API key</strong> nueva.</li>
+            <li>Acá: cargar el teléfono nuevo (con código de país) y la API key nueva, y guardar. No deja guardar un teléfono distinto sin una API key nueva.</li>
+          </ol>
+          <p>Para recibir avisos por mail o WhatsApp, el canal elegido tiene que tener sus datos cargados.</p>
+        </details>
         <h2 style="margin-top:10px">Descuento por volumen</h2>
         <div class="grid">
           <div class="field"><label for="umbral_baldes">A partir de (baldes en el mes)</label><input id="umbral_baldes" name="umbral_baldes" type="number" min="0" step="1"></div>
@@ -135,7 +158,7 @@ async function cargarPedidos() {
   rows.forEach(p => {
     const tr = document.createElement('tr');
     tr.append(td('#' + p.id), td(ddmm(p.creado_en)), td(p.nombre), td(p.dni), td(p.telefono), td(p.direccion),
-      td(p.cantidad, 'num'), td(p.descuento_pct ? p.descuento_pct + '%' : '—', 'num'), td(pesos(p.total), 'num'), td(ddmm(p.fecha_entrega)));
+      td(p.cantidad, 'num'), td(p.descuento_pct ? p.descuento_pct + '%' : '—', 'num'), td(pesos(p.total), 'num'), td(ddmm(p.fecha_entrega)), td(p.comentarios || '—'));
     const cel = document.createElement('td');
     const sel = document.createElement('select');
     Object.entries(ESTADOS).forEach(([v, l]) => { const o = new Option(l, v, false, v === p.estado); sel.add(o); });

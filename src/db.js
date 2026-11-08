@@ -35,7 +35,8 @@ db.exec(`
     fecha_entrega      TEXT NOT NULL,  -- YYYY-MM-DD
     estado             TEXT NOT NULL DEFAULT 'recibido'
                        CHECK (estado IN ('recibido','en_proceso','entregado')),
-    actualizado_en     TEXT NOT NULL
+    actualizado_en     TEXT NOT NULL,
+    comentarios        TEXT NOT NULL DEFAULT ''
   );
 
   CREATE TABLE IF NOT EXISTS config (
@@ -44,12 +45,20 @@ db.exec(`
   );
 `);
 
+// Migración: bases creadas antes de existir el campo de comentarios.
+if (!db.prepare('PRAGMA table_info(pedidos)').all().some(c => c.name === 'comentarios')) {
+  db.exec("ALTER TABLE pedidos ADD COLUMN comentarios TEXT NOT NULL DEFAULT ''");
+}
+
 const DEFAULTS = {
   precio_balde: '10000',
   umbral_baldes: '20',
   descuento_pct: '10',
   hora_corte: '12:00',
   email_propietario: process.env.OWNER_EMAIL || '',
+  telefono_propietario: '',
+  callmebot_apikey: '',
+  canal_notificacion: 'mail', // 'mail' | 'whatsapp' | 'ambos'
 };
 const insertDefault = db.prepare('INSERT OR IGNORE INTO config (clave, valor) VALUES (?, ?)');
 for (const [k, v] of Object.entries(DEFAULTS)) insertDefault.run(k, v);
@@ -63,6 +72,9 @@ function getConfig() {
     descuento_pct: Number(c.descuento_pct),
     hora_corte: c.hora_corte || '12:00',
     email_propietario: c.email_propietario || '',
+    telefono_propietario: c.telefono_propietario || '',
+    callmebot_apikey: c.callmebot_apikey || '',
+    canal_notificacion: ['mail', 'whatsapp', 'ambos'].includes(c.canal_notificacion) ? c.canal_notificacion : 'mail',
   };
 }
 

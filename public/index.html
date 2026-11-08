@@ -18,6 +18,7 @@
         <div class="field"><label for="direccion">Dirección de entrega</label><input id="direccion" name="direccion" autocomplete="street-address" required></div>
         <div class="field"><label for="telefono">Teléfono</label><input id="telefono" name="telefono" type="tel" autocomplete="tel" required></div>
         <div class="field"><label for="cantidad">Cantidad de baldes</label><input id="cantidad" name="cantidad" type="number" min="1" max="50" step="1" value="1" required></div>
+        <div class="field"><label for="comentarios">Comentarios <span class="hint">(opcional, hasta 300 caracteres)</span></label><textarea id="comentarios" name="comentarios" rows="3" maxlength="300" placeholder="Ej.: tocar timbre 2B, entregar por la tarde"></textarea></div>
         <button type="submit" id="enviar">Enviar pedido</button>
         <div id="errores"></div>
       </form>
@@ -35,7 +36,7 @@
         <div id="histErrores"></div>
       </form>
       <div class="tabla-wrap" id="histWrap" hidden><table>
-        <thead><tr><th>#</th><th>Fecha</th><th class="num">Baldes</th><th class="num">Desc.</th><th class="num">Total</th><th>Entrega</th><th>Estado</th></tr></thead>
+        <thead><tr><th>#</th><th>Fecha</th><th class="num">Baldes</th><th class="num">Desc.</th><th class="num">Total</th><th>Entrega</th><th>Estado</th><th>Comentarios</th></tr></thead>
         <tbody id="histBody"></tbody>
       </table></div>
       <p class="vacio" id="histVacio" hidden>No se encontraron pedidos.</p>
@@ -96,12 +97,13 @@ function mostrarConfirmacion(p) {
   ];
   if (p.descuento_pct > 0) filas.push([`Descuento ${p.descuento_pct}%`, '−' + pesos(p.descuento_monto)]);
   filas.push(['Total', pesos(p.total)]);
+  if (p.comentarios) filas.push(['Comentarios', p.comentarios]);
   const dl = $('#detalle');
   dl.innerHTML = '';
   filas.forEach(([k, v], i) => {
     const dt = document.createElement('dt'); dt.textContent = k;
     const dd = document.createElement('dd'); dd.textContent = v;
-    if (i === filas.length - 1) dd.className = 'total';
+    if (k === 'Total') dd.className = 'total';
     dl.append(dt, dd);
   });
   $('#formCard').hidden = true;
@@ -126,7 +128,7 @@ $('#histForm').addEventListener('submit', async e => {
       const tr = document.createElement('tr');
       tr.append(celda('#' + p.id), celda(ddmm(p.fecha_pedido)), celda(p.cantidad, 'num'),
         celda(p.descuento_pct ? p.descuento_pct + '%' : '—', 'num'), celda(pesos(p.total), 'num'),
-        celda(ddmm(p.fecha_entrega)), celda(ESTADOS[p.estado] || p.estado));
+        celda(ddmm(p.fecha_entrega)), celda(ESTADOS[p.estado] || p.estado), celda(p.comentarios || '—'));
       tb.appendChild(tr);
     });
     $('#histWrap').hidden = rows.length === 0;

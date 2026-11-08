@@ -42,6 +42,7 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 | creado_en, actualizado_en | TEXT | `YYYY-MM-DD HH:MM` local |
 | fecha_entrega | TEXT | `YYYY-MM-DD` |
 | estado | TEXT | `recibido` \| `en_proceso` \| `entregado` (CHECK) |
+| comentarios | TEXT | texto libre del cliente para este pedido; `''` si no escribió nada (hasta 300 caracteres). Las bases anteriores se migran al arrancar |
 
 ### `config` (clave/valor)
 | Clave | Por defecto | Descripción |
@@ -50,7 +51,10 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 | umbral_baldes | 20 | baldes acumulados en el mes calendario para activar descuento (0 = sin descuento) |
 | descuento_pct | 10 | porcentaje de descuento |
 | hora_corte | 12:00 | hora límite de los viernes |
-| email_propietario | `OWNER_EMAIL` o vacío | destinatario de notificaciones |
+| email_propietario | `OWNER_EMAIL` o vacío | destinatario de notificaciones por mail |
+| telefono_propietario | vacío | WhatsApp del propietario, formato internacional (`+5491112345678`) |
+| callmebot_apikey | vacío | API key de CallMeBot, atada al teléfono. Solo visible en el panel (autenticado) |
+| canal_notificacion | `mail` | `mail` \| `whatsapp` \| `ambos` |
 
 ## 4. Reglas de negocio
 
@@ -80,9 +84,12 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 - El panel puede asignar cualquiera de los tres estados (el código no impone el orden).
 
 ### RN-6 Notificación
-- Al crear un pedido se envía un mail al propietario con: n.º de pedido, datos del cliente (marca "CLIENTE NUEVO" si corresponde), cantidad, subtotal, descuento, total y fecha de entrega.
-- Si falla el envío o no hay email configurado, el pedido igualmente queda registrado.
-- Sin `SMTP_HOST`, el mail se guarda en `data/outbox/<timestamp>.txt`.
+- Al crear un pedido se avisa al propietario según `canal_notificacion`: `mail` (por defecto), `whatsapp` o `ambos`.
+- **Mail:** n.º de pedido, datos del cliente (marca "CLIENTE NUEVO" si corresponde), cantidad, subtotal, descuento, total, fecha de entrega y, si los hay, los comentarios del cliente. Vía Resend, SMTP o, sin ninguno configurado, archivo en `outbox/`.
+- **WhatsApp (CallMeBot):** resumen corto (n.º de pedido, cliente y DNI, baldes, total, fecha de entrega y comentarios si los hay), enviado al `telefono_propietario` con `callmebot_apikey`.
+- Los canales son independientes: si uno falla (o falta su dato), se registra el error en el log y el pedido y el otro aviso igual salen.
+- Validaciones al guardar la configuración: el canal elegido debe tener sus datos (mail → email; whatsapp → teléfono y API key); el teléfono se normaliza a `+` y 8–15 dígitos; si cambia el teléfono debe cambiar también la API key (está atada al número en CallMeBot).
+- Un `PUT /api/admin/config` que omite los campos de notificación conserva los valores actuales.
 
 ## 5. API
 
@@ -94,15 +101,16 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 | POST | `/api/pedidos` | Crea un pedido |
 | GET | `/api/mis-pedidos?dni=&desde=&hasta=` | Historial del cliente identificado por DNI |
 
-**GET `/api/mis-pedidos`** — `dni` obligatorio (7–9 dígitos); `desde` y `hasta` opcionales (`YYYY-MM-DD`, inclusivos, sobre `fecha_pedido`; `desde <= hasta`). Respuesta 200: lista ordenada del más reciente al más antiguo con `id, fecha_pedido, cantidad, precio_unitario, subtotal, descuento_pct, descuento_monto, total, fecha_entrega, estado`. No devuelve datos personales. DNI sin pedidos → `[]`. Parámetros inválidos → 400 `{ errores }`.
+**GET `/api/mis-pedidos`** — `dni` obligatorio (7–9 dígitos); `desde` y `hasta` opcionales (`YYYY-MM-DD`, inclusivos, sobre `fecha_pedido`; `desde <= hasta`). Respuesta 200: lista ordenada del más reciente al más antiguo con `id, fecha_pedido, cantidad, precio_unitario, subtotal, descuento_pct, descuento_monto, total, fecha_entrega, estado, comentarios`. No devuelve datos personales. DNI sin pedidos → `[]`. Parámetros inválidos → 400 `{ errores }`.
 
-**POST `/api/pedidos`** — body: `nombre`, `dni`, `direccion`, `telefono`, `cantidad`.
+**POST `/api/pedidos`** — body: `nombre`, `dni`, `direccion`, `telefono`, `cantidad`, `comentarios` (opcional).
 
 Validaciones (400 con `{ errores: [...] }`):
 - nombre y dirección no vacíos.
 - DNI: 7–9 dígitos (se descartan caracteres no numéricos).
 - teléfono: `^[\d\s+()-]{6,}$`.
 - cantidad: entero, `0 < cantidad <= 50`.
+- comentarios: opcional; se recortan los espacios; máximo 300 caracteres.
 
 Respuesta 201: `{ pedido_id, cliente_nuevo, cliente, cantidad, fecha_entrega, precio_unitario, subtotal, baldes_acumulados, descuento_pct, descuento_monto, total }`.
 Error interno → 500 y rollback (cliente y pedido se registran en una sola transacción).
@@ -122,6 +130,7 @@ Error interno → 500 y rollback (cliente y pedido se registran en una sola tran
 |---|---|
 | `dni` | contiene (parcial; se ignoran caracteres no numéricos) |
 | `nombre` | contiene, sin distinguir mayúsculas ni acentos (se compara normalizado en la aplicación) |
+| `comentario` | el comentario del pedido contiene el texto, sin distinguir mayúsculas ni acentos |
 | `estado` | `recibido` \| `en_proceso` \| `entregado` |
 | `descuento` | `con` (descuento_pct > 0) \| `sin` |
 | `desde`, `hasta` | rango de `fecha_pedido`, inclusivo |

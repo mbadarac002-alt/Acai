@@ -16,11 +16,11 @@ npm start
 
 ## Funcionamiento
 
-1. El cliente completa nombre, DNI, dirección, teléfono y cantidad de baldes (mayor a 0 y hasta 50).
+1. El cliente completa nombre, DNI, dirección, teléfono y cantidad de baldes (mayor a 0 y hasta 50), y opcionalmente comentarios para ese pedido (hasta 300 caracteres, ej. "tocar timbre 2B"). El comentario llega al propietario en el mail y el WhatsApp, y se ve en el panel y en el historial del cliente.
 2. Si es su primer pedido (DNI nuevo), se registra en la base de **clientes**. Si ya existía, se actualizan sus datos de contacto.
 3. Se registra el pedido en la base de **pedidos** con estado *Recibido*.
 4. Se le muestra al cliente la fecha de entrega y el precio.
-5. Se envía un mail al propietario.
+5. Se avisa al propietario por mail, WhatsApp o ambos, según lo que elija en el panel.
 
 ### Historial del cliente
 
@@ -28,7 +28,15 @@ En la página de pedidos, la sección **Mis pedidos** permite consultar el histo
 
 ### Filtros del panel
 
-En la pestaña **Pedidos** del panel, el propietario puede filtrar (criterios combinables, se aplican al escribir) por DNI, nombre del cliente (sin distinguir mayúsculas ni acentos), estado, con/sin descuento, rango de fecha del pedido y rango de fecha de entrega. Se muestra un resumen de los resultados: cantidad de pedidos, baldes y total.
+En la pestaña **Pedidos** del panel, el propietario puede filtrar (criterios combinables, se aplican al escribir) por DNI, nombre del cliente y texto del comentario (ambos sin distinguir mayúsculas ni acentos), estado, con/sin descuento, rango de fecha del pedido y rango de fecha de entrega. Se muestra un resumen de los resultados: cantidad de pedidos, baldes y total.
+
+### Notificaciones al propietario
+
+En el panel (**Configuración → Notificaciones de nuevos pedidos**) el propietario elige recibir los avisos por **mail**, **WhatsApp** o **ambos**, y carga su email, su teléfono (formato internacional, ej. `+5491112345678`) y la API key de [CallMeBot](https://www.callmebot.com/blog/free-api-whatsapp-messages/). El valor por defecto es solo mail. Cada canal es independiente: si uno falla, el pedido y el otro aviso igual se registran.
+
+**Activar WhatsApp o cambiar el celular:** desde el WhatsApp del número nuevo, enviar `I allow callmebot to send me messages` al número del bot (figura en callmebot.com). CallMeBot responde con una API key, que se carga en el panel junto al teléfono. La key está atada al número, por eso el panel no deja guardar un teléfono distinto sin una API key nueva.
+
+**Cambiar el mail:** escribir el email nuevo en el panel y guardar. Con el remitente de prueba de Resend (`onboarding@resend.dev`) solo se entrega a la dirección con la que se registró la cuenta de Resend; para otro destinatario hay que registrar la cuenta con ese mail o verificar un dominio propio y actualizar `MAIL_FROM`.
 
 ### Reglas
 

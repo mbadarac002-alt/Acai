@@ -3,12 +3,14 @@ const express = require('express');
 const { db, getConfig, setConfig } = require('./db');
 const { ahoraLocal, calcularFechaEntrega, calcularPrecio, mesDe } =require('./reglas');
 const { enviarMail } = require('./mailer');
+const { enviarWhatsApp, normalizarTelefono } = require('./whatsapp');
 
 const app = express();
 app.use(express.json());
 
 const ESTADOS = ['recibido', 'en_proceso', 'entregado'];
 const MAX_BALDES = 50;
+const MAX_COMENTARIOS = 300;
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
 
@@ -42,8 +44,10 @@ app.post('/api/pedidos', async (req, res) => {
   const direccion = String(req.body.direccion || '').trim();
   const telefono = String(req.body.telefono || '').trim();
   const cantidad = Number(req.body.cantidad);
+  const comentarios = String(req.body.comentarios || '').trim();
 
   const errores = [];
+  if (comentarios.length > MAX_COMENTARIOS) errores.push(`Los comentarios no pueden superar los ${MAX_COMENTARIOS} caracteres.`);
   if (!nombre) errores.push('El nombre es obligatorio.');
   if (!/^\d{7,9}$/.test(dni)) errores.push('El DNI debe tener entre 7 y 9 dígitos.');
   if (!direccion) errores.push('La dirección es obligatoria.');
@@ -79,25 +83,36 @@ app.post('/api/pedidos', async (req, res) => {
     // 3. Registrar el pedido.
     const r = db.prepare(`
       INSERT INTO pedidos (cliente_id, cantidad, precio_unitario, subtotal, baldes_acumulados, descuento_pct,
-                           descuento_monto, total, fecha_pedido, creado_en, fecha_entrega, estado, actualizado_en)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'recibido', ?)`
+                           descuento_monto, total, fecha_pedido, creado_en, fecha_entrega, estado, actualizado_en, comentarios)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'recibido', ?, ?)`
     ).run(cliente.id, cantidad, precio.precio_unitario, precio.subtotal, precio.baldes_acumulados, precio.descuento_pct,
           precio.descuento_monto, precio.total, ahora.fecha, `${ahora.fecha} ${ahora.hora}`, fechaEntrega,
-          `${ahora.fecha} ${ahora.hora}`);
+          `${ahora.fecha} ${ahora.hora}`, comentarios);
     db.exec('COMMIT');
 
-    resultado = { pedido_id: Number(r.lastInsertRowid), cliente_nuevo: esNuevo, cliente, cantidad, fecha_entrega: fechaEntrega, ...precio };
+    resultado = { pedido_id: Number(r.lastInsertRowid), cliente_nuevo: esNuevo, cliente, cantidad, comentarios, fecha_entrega: fechaEntrega, ...precio };
   } catch (e) {
     db.exec('ROLLBACK');
     console.error(e);
     return res.status(500).json({ errores: ['No se pudo registrar el pedido. Intente nuevamente.'] });
   }
 
-  // 4. Notificar al propietario (si falla el mail, el pedido igual queda registrado).
-  try {
-    await enviarMail({
+  // 4. Notificar al propietario por el/los canal(es) elegidos en el panel.
+  //    Cada canal es independiente y, si falla, el pedido igual queda registrado.
+  const asunto = `Nuevo pedido #${resultado.pedido_id} - ${resultado.cantidad} baldes - ${nombre}`;
+  const resumenWhatsApp = [
+    `Nuevo pedido #${resultado.pedido_id}${resultado.cliente_nuevo ? ' (cliente nuevo)' : ''}`,
+    `${nombre} - DNI ${dni}`,
+    `${resultado.cantidad} baldes - Total ${fmtPesos(resultado.total)}`,
+    `Entrega: viernes ${fmtFecha(resultado.fecha_entrega)}`,
+    ...(comentarios ? [`Comentarios: ${comentarios}`] : []),
+  ].join('\n');
+  const canal = config.canal_notificacion;
+  const envios = [];
+  if (canal === 'mail' || canal === 'ambos') {
+    envios.push(['mail', () => enviarMail({
       to: config.email_propietario,
-      subject: `Nuevo pedido #${resultado.pedido_id} - ${resultado.cantidad} baldes - ${nombre}`,
+      subject: asunto,
       text: [
         `Se recibió un nuevo pedido.`,
         ``,
@@ -115,11 +130,19 @@ app.post('/api/pedidos', async (req, res) => {
         `Total: ${fmtPesos(resultado.total)}`,
         ``,
         `Entrega: viernes ${fmtFecha(resultado.fecha_entrega)}`,
+        ...(comentarios ? [``, `Comentarios del cliente:`, comentarios] : []),
       ].join('\n'),
-    });
-  } catch (e) {
-    console.error('[mail] Error enviando notificación:', e.message);
+    })]);
   }
+  if (canal === 'whatsapp' || canal === 'ambos') {
+    envios.push(['whatsapp', () => enviarWhatsApp({
+      phone: config.telefono_propietario, apikey: config.callmebot_apikey, text: resumenWhatsApp,
+    })]);
+  }
+  await Promise.all(envios.map(async ([nombreCanal, enviar]) => {
+    try { await enviar(); }
+    catch (e) { console.error(`[${nombreCanal}] Error enviando notificación:`, e.message); }
+  }));
 
   res.status(201).json(resultado);
 });
@@ -142,7 +165,7 @@ app.get('/api/mis-pedidos', (req, res) => {
   if (hasta) { where.push('p.fecha_pedido <= ?'); params.push(hasta); }
   const rows = db.prepare(`
     SELECT p.id, p.fecha_pedido, p.cantidad, p.precio_unitario, p.subtotal, p.descuento_pct,
-           p.descuento_monto, p.total, p.fecha_entrega, p.estado
+           p.descuento_monto, p.total, p.fecha_entrega, p.estado, p.comentarios
     FROM pedidos p JOIN clientes c ON c.id = p.cliente_id
     WHERE ${where.join(' AND ')}
     ORDER BY p.id DESC`).all(...params);
@@ -162,7 +185,24 @@ admin.put('/config', (req, res) => {
   if (!(Number.isInteger(Number(b.umbral_baldes)) && Number(b.umbral_baldes) >= 0)) errores.push('El umbral debe ser un entero mayor o igual a 0.');
   if (!(Number(b.descuento_pct) >= 0 && Number(b.descuento_pct) <= 100)) errores.push('El descuento debe estar entre 0 y 100%.');
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.hora_corte || '')) errores.push('La hora de corte debe tener formato HH:MM.');
-  if (b.email_propietario && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(b.email_propietario)) errores.push('Email del propietario inválido.');
+
+  // Notificaciones: lo que no se envía en el body conserva su valor actual.
+  const actual = getConfig();
+  const email = String(b.email_propietario ?? actual.email_propietario).trim();
+  const telefonoIngresado = String(b.telefono_propietario ?? actual.telefono_propietario).trim();
+  const apikey = String(b.callmebot_apikey ?? actual.callmebot_apikey).trim();
+  const canal = String(b.canal_notificacion ?? actual.canal_notificacion);
+  const telefono = telefonoIngresado ? normalizarTelefono(telefonoIngresado) : '';
+
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) errores.push('Email del propietario inválido.');
+  if (telefono === null) errores.push('El teléfono debe estar en formato internacional, por ejemplo +5491112345678.');
+  if (!['mail', 'whatsapp', 'ambos'].includes(canal)) errores.push('Canal de notificación inválido.');
+  if ((canal === 'mail' || canal === 'ambos') && !email) errores.push('Para recibir avisos por mail hay que cargar el email del propietario.');
+  if ((canal === 'whatsapp' || canal === 'ambos') && (!telefono || !apikey)) errores.push('Para recibir avisos por WhatsApp hay que cargar el teléfono y la API key de CallMeBot.');
+  // La API key de CallMeBot está atada al número: si cambia el teléfono, tiene que cambiar la key.
+  if (telefono && actual.telefono_propietario && telefono !== actual.telefono_propietario && apikey === actual.callmebot_apikey) {
+    errores.push('Cambiaste el teléfono: hay que activar CallMeBot con el número nuevo y cargar también la API key nueva.');
+  }
   if (errores.length) return res.status(400).json({ errores });
 
   setConfig({
@@ -170,7 +210,10 @@ admin.put('/config', (req, res) => {
     umbral_baldes: Number(b.umbral_baldes),
     descuento_pct: Number(b.descuento_pct),
     hora_corte: b.hora_corte,
-    email_propietario: b.email_propietario || '',
+    email_propietario: email,
+    telefono_propietario: telefono || '',
+    callmebot_apikey: apikey,
+    canal_notificacion: canal,
   });
   res.json(getConfig());
 });
@@ -180,6 +223,7 @@ admin.get('/pedidos', (req, res) => {
   const estado = q('estado');
   const dni = q('dni').replace(/\D/g, '');
   const nombre = q('nombre');
+  const comentario = q('comentario');
   const descuento = q('descuento');
   const fechas = { desde: q('desde'), hasta: q('hasta'), entrega_desde: q('entrega_desde'), entrega_hasta: q('entrega_hasta') };
 
@@ -210,10 +254,14 @@ admin.get('/pedidos', (req, res) => {
     FROM pedidos p JOIN clientes c ON c.id = p.cliente_id
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY p.id DESC`).all(...params);
-  // El nombre se compara sin mayúsculas ni acentos (SQLite no los normaliza), por eso se filtra acá.
+  // Nombre y comentarios se comparan sin mayúsculas ni acentos (SQLite no los normaliza), por eso se filtran acá.
   if (nombre) {
     const buscado = normalizarTexto(nombre);
     rows = rows.filter(r => normalizarTexto(r.nombre).includes(buscado));
+  }
+  if (comentario) {
+    const buscado = normalizarTexto(comentario);
+    rows = rows.filter(r => normalizarTexto(r.comentarios).includes(buscado));
   }
   res.json(rows);
 });
