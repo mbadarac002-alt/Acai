@@ -41,7 +41,7 @@ En el panel (**Configuración → Notificaciones de nuevos pedidos**) el propiet
 ### Reglas
 
 - **Precio:** precio por balde definido en el panel. Cada pedido guarda el precio del momento en que se hizo.
-- **Entrega:** el viernes más cercano. Un pedido hecho un viernes antes de la hora de corte se entrega ese mismo día; si se hace después, el viernes siguiente.
+- **Entrega:** los **martes y viernes**. Cada pedido se entrega el día de entrega más cercano. Un pedido hecho un martes o un viernes antes de la hora de corte se entrega ese mismo día; si se hace en o después de la hora de corte, se entrega el siguiente día de entrega (martes → viernes, viernes → martes). Un pedido hecho cualquier otro día va al próximo martes o viernes.
 - **Descuento:** el propietario define un umbral de baldes y un porcentaje. Se suman los baldes del cliente en pedidos del mes calendario en curso, incluido el pedido actual. Si el total alcanza el umbral, el descuento se aplica al total de ese pedido y de los siguientes de ese mes. El conteo se reinicia el día 1 de cada mes.
 - **Estados:** Recibido → En proceso → Entregado (se cambian desde el panel).
 

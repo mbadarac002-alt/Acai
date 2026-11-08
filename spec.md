@@ -50,7 +50,7 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 | precio_balde | 10000 | precio por balde |
 | umbral_baldes | 20 | baldes acumulados en el mes calendario para activar descuento (0 = sin descuento) |
 | descuento_pct | 10 | porcentaje de descuento |
-| hora_corte | 12:00 | hora límite de los viernes |
+| hora_corte | 12:00 | hora límite de los días de entrega (martes y viernes) |
 | email_propietario | `OWNER_EMAIL` o vacío | destinatario de notificaciones por mail |
 | telefono_propietario | vacío | WhatsApp del propietario, formato internacional (`+5491112345678`) |
 | callmebot_apikey | vacío | API key de CallMeBot, atada al teléfono. Solo visible en el panel (autenticado) |
@@ -74,10 +74,12 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 - `umbral_baldes = 0` → nunca hay descuento.
 
 ### RN-4 Fecha de entrega
-- Siempre un viernes, según la fecha/hora local (`TZ_NEGOCIO`, por defecto `America/Argentina/Buenos_Aires`).
-- Pedido en viernes antes de `hora_corte` → ese mismo viernes.
-- Pedido en viernes desde `hora_corte` → viernes siguiente (+7 días).
-- Cualquier otro día → próximo viernes.
+- Siempre un **martes o un viernes** (días de entrega), según la fecha/hora local (`TZ_NEGOCIO`, por defecto `America/Argentina/Buenos_Aires`).
+- Pedido en un día de entrega antes de `hora_corte` → ese mismo día.
+- Pedido en un día de entrega desde `hora_corte` → siguiente día de entrega (martes → viernes, +3 días; viernes → martes, +4 días).
+- Cualquier otro día → próximo día de entrega: lunes → martes; miércoles y jueves → viernes; sábado y domingo → martes.
+- La `hora_corte` es una sola y vale para ambos días. Los días de entrega son fijos en el código (`DIAS_ENTREGA` en `src/reglas.js`).
+- Los pedidos ya registrados conservan su fecha de entrega.
 
 ### RN-5 Estados
 - `recibido` (inicial) → `en_proceso` → `entregado`.

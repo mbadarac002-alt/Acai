@@ -1,25 +1,36 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { ahoraLocal, calcularFechaEntrega, calcularPrecio, mesDe } = require('../src/reglas');
+const { ahoraLocal, calcularFechaEntrega, calcularPrecio, mesDe, nombreDia } = require('../src/reglas');
 
-// 2026-11-02 es lunes, 2026-11-06 es viernes.
+// 2026-11-02 es lunes, 2026-11-03 martes, 2026-11-06 viernes.
 const dia = (fecha, hora, diaSemana) => ({ fecha, hora, diaSemana });
 
-test('entrega: lunes -> viernes de esa semana', () => {
-  assert.equal(calcularFechaEntrega(dia('2026-11-02', '09:00', 1), '12:00'), '2026-11-06');
+test('entrega: lunes -> martes siguiente', () => {
+  assert.equal(calcularFechaEntrega(dia('2026-11-02', '09:00', 1), '12:00'), '2026-11-03');
 });
-test('entrega: jueves -> viernes del día siguiente', () => {
+test('entrega: martes antes de la hora de corte -> mismo martes', () => {
+  assert.equal(calcularFechaEntrega(dia('2026-11-03', '11:59', 2), '12:00'), '2026-11-03');
+});
+test('entrega: martes en/después de la hora de corte -> viernes', () => {
+  assert.equal(calcularFechaEntrega(dia('2026-11-03', '12:00', 2), '12:00'), '2026-11-06');
+});
+test('entrega: miércoles y jueves -> viernes', () => {
+  assert.equal(calcularFechaEntrega(dia('2026-11-04', '09:00', 3), '12:00'), '2026-11-06');
   assert.equal(calcularFechaEntrega(dia('2026-11-05', '23:59', 4), '12:00'), '2026-11-06');
 });
 test('entrega: viernes antes de la hora de corte -> mismo viernes', () => {
   assert.equal(calcularFechaEntrega(dia('2026-11-06', '11:59', 5), '12:00'), '2026-11-06');
 });
-test('entrega: viernes en/después de la hora de corte -> viernes siguiente', () => {
-  assert.equal(calcularFechaEntrega(dia('2026-11-06', '12:00', 5), '12:00'), '2026-11-13');
+test('entrega: viernes en/después de la hora de corte -> martes siguiente', () => {
+  assert.equal(calcularFechaEntrega(dia('2026-11-06', '12:00', 5), '12:00'), '2026-11-10');
 });
-test('entrega: sábado y domingo -> viernes siguiente', () => {
-  assert.equal(calcularFechaEntrega(dia('2026-11-07', '10:00', 6), '12:00'), '2026-11-13');
-  assert.equal(calcularFechaEntrega(dia('2026-11-08', '10:00', 0), '12:00'), '2026-11-13');
+test('entrega: sábado y domingo -> martes siguiente', () => {
+  assert.equal(calcularFechaEntrega(dia('2026-11-07', '10:00', 6), '12:00'), '2026-11-10');
+  assert.equal(calcularFechaEntrega(dia('2026-11-08', '10:00', 0), '12:00'), '2026-11-10');
+});
+test('nombreDia devuelve el día de la semana en español', () => {
+  assert.equal(nombreDia('2026-11-10'), 'martes');
+  assert.equal(nombreDia('2026-11-13'), 'viernes');
 });
 test('ahoraLocal usa la zona horaria del negocio', () => {
   // 2026-11-06 14:30 UTC = 11:30 en Buenos Aires (viernes)

@@ -1,7 +1,7 @@
 const path = require('node:path');
 const express = require('express');
 const { db, getConfig, setConfig } = require('./db');
-const { ahoraLocal, calcularFechaEntrega, calcularPrecio, mesDe } =require('./reglas');
+const { ahoraLocal, calcularFechaEntrega, calcularPrecio, mesDe, nombreDia } = require('./reglas');
 const { enviarMail } = require('./mailer');
 const { enviarWhatsApp, normalizarTelefono } = require('./whatsapp');
 
@@ -104,7 +104,7 @@ app.post('/api/pedidos', async (req, res) => {
     `Nuevo pedido #${resultado.pedido_id}${resultado.cliente_nuevo ? ' (cliente nuevo)' : ''}`,
     `${nombre} - DNI ${dni}`,
     `${resultado.cantidad} baldes - Total ${fmtPesos(resultado.total)}`,
-    `Entrega: viernes ${fmtFecha(resultado.fecha_entrega)}`,
+    `Entrega: ${nombreDia(resultado.fecha_entrega)} ${fmtFecha(resultado.fecha_entrega)}`,
     ...(comentarios ? [`Comentarios: ${comentarios}`] : []),
   ].join('\n');
   const canal = config.canal_notificacion;
@@ -129,7 +129,7 @@ app.post('/api/pedidos', async (req, res) => {
           : `Sin descuento`,
         `Total: ${fmtPesos(resultado.total)}`,
         ``,
-        `Entrega: viernes ${fmtFecha(resultado.fecha_entrega)}`,
+        `Entrega: ${nombreDia(resultado.fecha_entrega)} ${fmtFecha(resultado.fecha_entrega)}`,
         ...(comentarios ? [``, `Comentarios del cliente:`, comentarios] : []),
       ].join('\n'),
     })]);

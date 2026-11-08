@@ -66,7 +66,7 @@
       <form id="configForm" novalidate>
         <div class="grid">
           <div class="field"><label for="precio_balde">Precio por balde ($)</label><input id="precio_balde" name="precio_balde" type="number" min="0" step="0.01"></div>
-          <div class="field"><label for="hora_corte">Hora de corte del viernes <span class="hint">pedidos antes de esta hora se entregan ese viernes</span></label><input id="hora_corte" name="hora_corte" type="time"></div>
+          <div class="field"><label for="hora_corte">Hora de corte (martes y viernes) <span class="hint">un pedido hecho un martes o viernes antes de esta hora se entrega ese mismo día; si es después, el próximo día de entrega</span></label><input id="hora_corte" name="hora_corte" type="time"></div>
         </div>
         <h2 style="margin-top:10px">Notificaciones de nuevos pedidos</h2>
         <div class="grid">

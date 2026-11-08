@@ -33,7 +33,7 @@ test('flujo completo: alta de cliente, pedido, descuento, estados y mail', async
   assert.equal(p1.total, 6000);
   assert.equal(p1.descuento_pct, 0);
   assert.ok(p1.fecha_entrega >= hoy);
-  assert.equal(new Date(p1.fecha_entrega + 'T12:00:00Z').getUTCDay(), 5, 'la entrega es un viernes');
+  assert.ok([2, 5].includes(new Date(p1.fecha_entrega + 'T12:00:00Z').getUTCDay()), 'la entrega es un martes o un viernes');
 
   // Segundo pedido: acumula 10 -> alcanza el umbral, descuento sobre todo el pedido
   r = await post('/api/pedidos', { ...cliente, cantidad: 4 });

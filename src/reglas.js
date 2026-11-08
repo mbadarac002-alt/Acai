@@ -24,17 +24,23 @@ function sumarDias(fechaISO, dias) {
   return d.toISOString().slice(0, 10);
 }
 
+const DIAS_ENTREGA = [2, 5]; // martes y viernes (0 = domingo)
+const NOMBRES_DIA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+/** Nombre del día de la semana de una fecha 'YYYY-MM-DD' (ej. 'martes'). */
+function nombreDia(fechaISO) {
+  return NOMBRES_DIA[new Date(fechaISO + 'T12:00:00Z').getUTCDay()];
+}
+
 /**
- * Viernes más cercano a la fecha del pedido.
- * Si el pedido se hace un viernes antes de la hora de corte, se entrega ese mismo día;
- * si es después, el viernes siguiente.
+ * Día de entrega (martes o viernes) más cercano a la fecha del pedido.
+ * Si el pedido se hace un día de entrega antes de la hora de corte, se entrega ese mismo día;
+ * si es en/después de la hora de corte, o cualquier otro día, se entrega el próximo día de entrega.
  */
 function calcularFechaEntrega({ fecha, hora, diaSemana }, horaCorte) {
-  const VIERNES = 5;
-  if (diaSemana === VIERNES) {
-    return hora < horaCorte ? fecha : sumarDias(fecha, 7);
-  }
-  const dias = (VIERNES - diaSemana + 7) % 7;
+  if (DIAS_ENTREGA.includes(diaSemana) && hora < horaCorte) return fecha;
+  let dias = 1;
+  while (!DIAS_ENTREGA.includes((diaSemana + dias) % 7)) dias++;
   return sumarDias(fecha, dias);
 }
 
@@ -66,4 +72,4 @@ function calcularPrecio({ cantidad, baldesPrevios, config }) {
 
 function round2(n) { return Math.round(n * 100) / 100; }
 
-module.exports = { TZ, ahoraLocal, sumarDias, calcularFechaEntrega, mesDe, calcularPrecio };
+module.exports = { TZ, ahoraLocal, sumarDias, nombreDia, calcularFechaEntrega, mesDe, calcularPrecio };
