@@ -73,23 +73,23 @@
           <div class="field"><label for="canal_notificacion">Quiero recibir los avisos por</label>
             <select id="canal_notificacion" name="canal_notificacion">
               <option value="mail">Mail</option>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="ambos">Mail y WhatsApp</option>
+              <option value="telegram">Telegram</option>
+              <option value="ambos">Mail y Telegram</option>
             </select></div>
           <div class="field"><label for="email_propietario">Email</label><input id="email_propietario" name="email_propietario" type="email" autocomplete="off"></div>
-          <div class="field"><label for="telefono_propietario">Teléfono de WhatsApp <span class="hint">formato internacional, ej. +5491112345678</span></label><input id="telefono_propietario" name="telefono_propietario" type="tel" autocomplete="off"></div>
-          <div class="field"><label for="callmebot_apikey">API key de CallMeBot</label><input id="callmebot_apikey" name="callmebot_apikey" type="password" autocomplete="off"></div>
+          <div class="field"><label for="telegram_chat_id">ID de chat de Telegram <span class="hint">un número, ej. 123456789</span></label><input id="telegram_chat_id" name="telegram_chat_id" inputmode="numeric" autocomplete="off"></div>
         </div>
         <details class="hint" style="margin:6px 0 14px">
-          <summary><strong>Cómo cambiar el mail o el celular</strong></summary>
+          <summary><strong>Cómo cambiar el mail o configurar Telegram</strong></summary>
           <p><strong>Cambiar el mail:</strong> escribir el email nuevo en el campo "Email" y guardar. Desde el próximo pedido los avisos llegan a esa dirección. Importante: mientras la aplicación use el remitente de prueba de Resend (<code>onboarding@resend.dev</code>), solo se entregan mails a la dirección con la que se registró la cuenta de Resend. Si el mail nuevo es otro, hay que registrar la cuenta de Resend con ese mail (nueva API key en la variable <code>RESEND_API_KEY</code> de Railway) o verificar un dominio propio en Resend y actualizar <code>MAIL_FROM</code>.</p>
-          <p><strong>Cambiar el celular (WhatsApp):</strong> la API key de CallMeBot está atada al número, así que hay que sacar una nueva.</p>
+          <p><strong>Configurar Telegram (una sola vez):</strong></p>
           <ol>
-            <li>Desde el WhatsApp del <strong>número nuevo</strong>, enviar el mensaje <code>I allow callmebot to send me messages</code> al número del bot que figura en callmebot.com (sección WhatsApp).</li>
-            <li>CallMeBot responde con una <strong>API key</strong> nueva.</li>
-            <li>Acá: cargar el teléfono nuevo (con código de país) y la API key nueva, y guardar. No deja guardar un teléfono distinto sin una API key nueva.</li>
+            <li>Quien administra el sistema crea el bot en Telegram hablando con <code>@BotFather</code> (comando <code>/newbot</code>) y carga el token que le da en la variable <code>TELEGRAM_BOT_TOKEN</code> de Railway.</li>
+            <li>El propietario abre ese bot en Telegram y toca <strong>Iniciar</strong> (si no, el bot no puede escribirle).</li>
+            <li>El propietario busca <code>@userinfobot</code> en Telegram, toca <strong>Iniciar</strong> y copia el número que figura como <em>Id</em>.</li>
+            <li>Acá: pegar ese número en "ID de chat de Telegram", elegir el canal y guardar.</li>
           </ol>
-          <p>Para recibir avisos por mail o WhatsApp, el canal elegido tiene que tener sus datos cargados.</p>
+          <p><strong>Cambiar de celular:</strong> no hay que hacer nada, Telegram está atado a la cuenta y no al número. Solo si cambia de cuenta de Telegram hay que repetir los pasos 2 a 4 con la cuenta nueva. Para recibir avisos por mail o Telegram, el canal elegido tiene que tener sus datos cargados.</p>
         </details>
         <h2 style="margin-top:10px">Descuento por volumen</h2>
         <div class="grid">

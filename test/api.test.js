@@ -170,48 +170,56 @@ test('comentarios del pedido: validación, historial, mail y filtro del panel', 
   assert.equal(fila.comentarios, 'Tocar timbre 2B <b>fuerte</b>');
 });
 
-test('notificaciones: canal mail / whatsapp / ambos y validaciones', async () => {
+test('notificaciones: canal mail / telegram / ambos y validaciones', async () => {
   const base0 = { precio_balde: 1000, umbral_baldes: 10, descuento_pct: 15, hora_corte: '12:00', email_propietario: 'dueno@example.com' };
   const outbox = path.join(path.dirname(DB_PATH), 'outbox');
   const mails = () => fs.existsSync(outbox) ? fs.readdirSync(outbox).length : 0;
+  const tokenOriginal = process.env.TELEGRAM_BOT_TOKEN;
 
-  // Intercepta solo las llamadas a CallMeBot; el resto va al servidor de test.
+  // Intercepta solo las llamadas a la API de Telegram; el resto va al servidor de test.
   const realFetch = global.fetch;
   const llamadas = [];
   let fallar = false;
   global.fetch = (url, opts) => {
-    if (String(url).startsWith('https://api.callmebot.com/')) {
-      llamadas.push(new URL(url));
-      return Promise.resolve(new Response(fallar ? 'error' : 'Message queued', { status: fallar ? 500 : 200 }));
+    if (String(url).startsWith('https://api.telegram.org/')) {
+      llamadas.push({ url: String(url), body: JSON.parse(opts.body) });
+      return Promise.resolve(fallar
+        ? new Response(JSON.stringify({ ok: false, description: 'Forbidden: bot was blocked by the user' }), { status: 403 })
+        : new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 }));
     }
     return realFetch(url, opts);
   };
   try {
-    const pedir = async () => (await post('/api/pedidos', { ...cliente, cantidad: 1 })).status;
+    const pedir = async () => (await post('/api/pedidos', { ...cliente, cantidad: 1, comentarios: 'Tocar timbre' })).status;
 
     // Validaciones
-    let r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'whatsapp' });
-    assert.equal(r.status, 400, 'WhatsApp sin teléfono ni key');
-    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'sms' });
-    assert.equal(r.status, 400, 'canal inválido');
-    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'ambos', telefono_propietario: '12345', callmebot_apikey: 'k1' });
-    assert.equal(r.status, 400, 'teléfono sin formato internacional');
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    let r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'telegram' });
+    assert.equal(r.status, 400, 'Telegram sin ID de chat');
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'telegram', telegram_chat_id: '123456789' });
+    assert.equal(r.status, 400, 'Telegram sin token en el servidor');
+    process.env.TELEGRAM_BOT_TOKEN = 'token-de-prueba';
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'whatsapp' });
+    assert.equal(r.status, 400, 'el canal whatsapp ya no existe');
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'ambos', telegram_chat_id: 'abc' });
+    assert.equal(r.status, 400, 'ID de chat no numérico');
     r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'mail', email_propietario: '' });
     assert.equal(r.status, 400, 'mail sin email');
 
-    // Solo WhatsApp: no hay mail, hay una llamada a CallMeBot
-    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'whatsapp', telefono_propietario: '+54 9 11 1234-5678', callmebot_apikey: 'key1' });
+    // Solo Telegram: no hay mail, hay una llamada a la API de Telegram
+    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'telegram', telegram_chat_id: ' -1001234567890 ' });
     assert.equal(r.status, 200);
-    assert.equal((await r.json()).telefono_propietario, '+5491112345678');
+    assert.equal((await r.json()).telegram_chat_id, '-1001234567890');
     let m0 = mails();
     assert.equal(await pedir(), 201);
-    assert.equal(mails(), m0, 'solo whatsapp: no se manda mail');
+    assert.equal(mails(), m0, 'solo telegram: no se manda mail');
     assert.equal(llamadas.length, 1);
-    assert.equal(llamadas[0].searchParams.get('phone'), '+5491112345678');
-    assert.equal(llamadas[0].searchParams.get('apikey'), 'key1');
-    assert.match(llamadas[0].searchParams.get('text'), /Nuevo pedido #\d+/);
+    assert.equal(llamadas[0].url, 'https://api.telegram.org/bottoken-de-prueba/sendMessage');
+    assert.equal(llamadas[0].body.chat_id, '-1001234567890');
+    assert.match(llamadas[0].body.text, /Nuevo pedido #\d+/);
+    assert.match(llamadas[0].body.text, /Comentarios: Tocar timbre/);
 
-    // Solo mail: no hay llamada a CallMeBot
+    // Solo mail: no hay llamada a Telegram
     r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'mail' });
     assert.equal(r.status, 200);
     m0 = mails();
@@ -227,26 +235,21 @@ test('notificaciones: canal mail / whatsapp / ambos y validaciones', async () =>
     assert.equal(mails(), m0 + 1);
     assert.equal(llamadas.length, 2);
 
-    // Si WhatsApp falla, el pedido y el mail igual se registran
+    // Si Telegram falla, el pedido y el mail igual se registran
     fallar = true;
     m0 = mails();
     assert.equal(await pedir(), 201);
     assert.equal(mails(), m0 + 1);
     fallar = false;
 
-    // Cambiar el teléfono exige una API key nueva
-    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'ambos', telefono_propietario: '+5491199999999', callmebot_apikey: 'key1' });
-    assert.equal(r.status, 400);
-    r = await adm('/config', 'PUT', { ...base0, canal_notificacion: 'ambos', telefono_propietario: '+5491199999999', callmebot_apikey: 'key2' });
-    assert.equal(r.status, 200);
-
     // Un PUT sin los campos de notificación conserva los valores actuales
     r = await adm('/config', 'PUT', base0);
     const cfg = await r.json();
     assert.equal(cfg.canal_notificacion, 'ambos');
-    assert.equal(cfg.telefono_propietario, '+5491199999999');
+    assert.equal(cfg.telegram_chat_id, '-1001234567890');
   } finally {
     global.fetch = realFetch;
+    if (tokenOriginal === undefined) delete process.env.TELEGRAM_BOT_TOKEN; else process.env.TELEGRAM_BOT_TOKEN = tokenOriginal;
   }
 });
 

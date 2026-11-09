@@ -52,9 +52,8 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 | descuento_pct | 10 | porcentaje de descuento |
 | hora_corte | 12:00 | hora límite de los días de entrega (martes y viernes) |
 | email_propietario | `OWNER_EMAIL` o vacío | destinatario de notificaciones por mail |
-| telefono_propietario | vacío | WhatsApp del propietario, formato internacional (`+5491112345678`) |
-| callmebot_apikey | vacío | API key de CallMeBot, atada al teléfono. Solo visible en el panel (autenticado) |
-| canal_notificacion | `mail` | `mail` \| `whatsapp` \| `ambos` |
+| telegram_chat_id | vacío | ID de chat de Telegram del propietario (número; negativo si es un grupo) |
+| canal_notificacion | `mail` | `mail`, `telegram` o `ambos` (un valor guardado inexistente, como el antiguo `whatsapp`, se interpreta como `mail`) |
 
 ## 4. Reglas de negocio
 
@@ -86,11 +85,11 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 - El panel puede asignar cualquiera de los tres estados (el código no impone el orden).
 
 ### RN-6 Notificación
-- Al crear un pedido se avisa al propietario según `canal_notificacion`: `mail` (por defecto), `whatsapp` o `ambos`.
+- Al crear un pedido se avisa al propietario según `canal_notificacion`: `mail` (por defecto), `telegram` o `ambos`.
 - **Mail:** n.º de pedido, datos del cliente (marca "CLIENTE NUEVO" si corresponde), cantidad, subtotal, descuento, total, fecha de entrega y, si los hay, los comentarios del cliente. Vía Resend, SMTP o, sin ninguno configurado, archivo en `outbox/`.
-- **WhatsApp (CallMeBot):** resumen corto (n.º de pedido, cliente y DNI, baldes, total, fecha de entrega y comentarios si los hay), enviado al `telefono_propietario` con `callmebot_apikey`.
+- **Telegram:** resumen corto (n.º de pedido, cliente y DNI, baldes, total, fecha de entrega y comentarios si los hay), enviado por un bot (API oficial de Telegram, `sendMessage`) al `telegram_chat_id`. El token del bot está en la variable de entorno `TELEGRAM_BOT_TOKEN`, no en la base ni en el panel.
 - Los canales son independientes: si uno falla (o falta su dato), se registra el error en el log y el pedido y el otro aviso igual salen.
-- Validaciones al guardar la configuración: el canal elegido debe tener sus datos (mail → email; whatsapp → teléfono y API key); el teléfono se normaliza a `+` y 8–15 dígitos; si cambia el teléfono debe cambiar también la API key (está atada al número en CallMeBot).
+- Validaciones al guardar la configuración: el canal elegido debe tener sus datos (mail → email; telegram → ID de chat numérico y `TELEGRAM_BOT_TOKEN` configurado en el servidor). Cambiar de celular no requiere cambios: Telegram depende de la cuenta, no del número.
 - Un `PUT /api/admin/config` que omite los campos de notificación conserva los valores actuales.
 
 ## 5. API
@@ -150,6 +149,7 @@ Validaciones de `PUT /config`: precio > 0; umbral entero ≥ 0; descuento 0–10
 | `ADMIN_USER` / `ADMIN_PASSWORD` | admin / admin |
 | `OWNER_EMAIL` | — |
 | `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `SMTP_FROM` | — |
+| `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram para los avisos (se crea con `@BotFather`) | — |
 | `TZ_NEGOCIO` | America/Argentina/Buenos_Aires |
 | `DB_PATH` | data/acai.db |
 

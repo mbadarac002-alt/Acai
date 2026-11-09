@@ -56,9 +56,8 @@ const DEFAULTS = {
   descuento_pct: '10',
   hora_corte: '12:00',
   email_propietario: process.env.OWNER_EMAIL || '',
-  telefono_propietario: '',
-  callmebot_apikey: '',
-  canal_notificacion: 'mail', // 'mail' | 'whatsapp' | 'ambos'
+  telegram_chat_id: '',
+  canal_notificacion: 'mail', // 'mail' | 'telegram' | 'ambos'
 };
 const insertDefault = db.prepare('INSERT OR IGNORE INTO config (clave, valor) VALUES (?, ?)');
 for (const [k, v] of Object.entries(DEFAULTS)) insertDefault.run(k, v);
@@ -72,9 +71,9 @@ function getConfig() {
     descuento_pct: Number(c.descuento_pct),
     hora_corte: c.hora_corte || '12:00',
     email_propietario: c.email_propietario || '',
-    telefono_propietario: c.telefono_propietario || '',
-    callmebot_apikey: c.callmebot_apikey || '',
-    canal_notificacion: ['mail', 'whatsapp', 'ambos'].includes(c.canal_notificacion) ? c.canal_notificacion : 'mail',
+    telegram_chat_id: c.telegram_chat_id || '',
+    // Un canal guardado que ya no existe (p. ej. 'whatsapp') vuelve a 'mail'.
+    canal_notificacion: ['mail', 'telegram', 'ambos'].includes(c.canal_notificacion) ? c.canal_notificacion : 'mail',
   };
 }
 

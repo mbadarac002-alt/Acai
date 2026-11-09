@@ -3,7 +3,7 @@ const express = require('express');
 const { db, getConfig, setConfig } = require('./db');
 const { ahoraLocal, calcularFechaEntrega, calcularPrecio, mesDe, nombreDia } = require('./reglas');
 const { enviarMail } = require('./mailer');
-const { enviarWhatsApp, normalizarTelefono } = require('./whatsapp');
+const { enviarTelegram, normalizarChatId, hayToken } = require('./telegram');
 
 const app = express();
 app.use(express.json());
@@ -100,7 +100,7 @@ app.post('/api/pedidos', async (req, res) => {
   // 4. Notificar al propietario por el/los canal(es) elegidos en el panel.
   //    Cada canal es independiente y, si falla, el pedido igual queda registrado.
   const asunto = `Nuevo pedido #${resultado.pedido_id} - ${resultado.cantidad} baldes - ${nombre}`;
-  const resumenWhatsApp = [
+  const resumenTelegram = [
     `Nuevo pedido #${resultado.pedido_id}${resultado.cliente_nuevo ? ' (cliente nuevo)' : ''}`,
     `${nombre} - DNI ${dni}`,
     `${resultado.cantidad} baldes - Total ${fmtPesos(resultado.total)}`,
@@ -134,10 +134,8 @@ app.post('/api/pedidos', async (req, res) => {
       ].join('\n'),
     })]);
   }
-  if (canal === 'whatsapp' || canal === 'ambos') {
-    envios.push(['whatsapp', () => enviarWhatsApp({
-      phone: config.telefono_propietario, apikey: config.callmebot_apikey, text: resumenWhatsApp,
-    })]);
+  if (canal === 'telegram' || canal === 'ambos') {
+    envios.push(['telegram', () => enviarTelegram({ chatId: config.telegram_chat_id, text: resumenTelegram })]);
   }
   await Promise.all(envios.map(async ([nombreCanal, enviar]) => {
     try { await enviar(); }
@@ -189,20 +187,16 @@ admin.put('/config', (req, res) => {
   // Notificaciones: lo que no se envía en el body conserva su valor actual.
   const actual = getConfig();
   const email = String(b.email_propietario ?? actual.email_propietario).trim();
-  const telefonoIngresado = String(b.telefono_propietario ?? actual.telefono_propietario).trim();
-  const apikey = String(b.callmebot_apikey ?? actual.callmebot_apikey).trim();
+  const chatIdIngresado = String(b.telegram_chat_id ?? actual.telegram_chat_id).trim();
   const canal = String(b.canal_notificacion ?? actual.canal_notificacion);
-  const telefono = telefonoIngresado ? normalizarTelefono(telefonoIngresado) : '';
+  const chatId = chatIdIngresado ? normalizarChatId(chatIdIngresado) : '';
 
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) errores.push('Email del propietario inválido.');
-  if (telefono === null) errores.push('El teléfono debe estar en formato internacional, por ejemplo +5491112345678.');
-  if (!['mail', 'whatsapp', 'ambos'].includes(canal)) errores.push('Canal de notificación inválido.');
+  if (chatId === null) errores.push('El ID de chat de Telegram debe ser un número (puede empezar con -, si es un grupo).');
+  if (!['mail', 'telegram', 'ambos'].includes(canal)) errores.push('Canal de notificación inválido.');
   if ((canal === 'mail' || canal === 'ambos') && !email) errores.push('Para recibir avisos por mail hay que cargar el email del propietario.');
-  if ((canal === 'whatsapp' || canal === 'ambos') && (!telefono || !apikey)) errores.push('Para recibir avisos por WhatsApp hay que cargar el teléfono y la API key de CallMeBot.');
-  // La API key de CallMeBot está atada al número: si cambia el teléfono, tiene que cambiar la key.
-  if (telefono && actual.telefono_propietario && telefono !== actual.telefono_propietario && apikey === actual.callmebot_apikey) {
-    errores.push('Cambiaste el teléfono: hay que activar CallMeBot con el número nuevo y cargar también la API key nueva.');
-  }
+  if ((canal === 'telegram' || canal === 'ambos') && !chatId) errores.push('Para recibir avisos por Telegram hay que cargar el ID de chat del propietario.');
+  if ((canal === 'telegram' || canal === 'ambos') && !hayToken()) errores.push('Falta configurar el bot de Telegram en el servidor (variable TELEGRAM_BOT_TOKEN).');
   if (errores.length) return res.status(400).json({ errores });
 
   setConfig({
@@ -211,8 +205,7 @@ admin.put('/config', (req, res) => {
     descuento_pct: Number(b.descuento_pct),
     hora_corte: b.hora_corte,
     email_propietario: email,
-    telefono_propietario: telefono || '',
-    callmebot_apikey: apikey,
+    telegram_chat_id: chatId || '',
     canal_notificacion: canal,
   });
   res.json(getConfig());

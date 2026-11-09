@@ -16,11 +16,11 @@ npm start
 
 ## Funcionamiento
 
-1. El cliente completa nombre, DNI, dirección, teléfono y cantidad de baldes (mayor a 0 y hasta 50), y opcionalmente comentarios para ese pedido (hasta 300 caracteres, ej. "tocar timbre 2B"). El comentario llega al propietario en el mail y el WhatsApp, y se ve en el panel y en el historial del cliente.
+1. El cliente completa nombre, DNI, dirección, teléfono y cantidad de baldes (mayor a 0 y hasta 50), y opcionalmente comentarios para ese pedido (hasta 300 caracteres, ej. "tocar timbre 2B"). El comentario llega al propietario en el mail y en Telegram, y se ve en el panel y en el historial del cliente.
 2. Si es su primer pedido (DNI nuevo), se registra en la base de **clientes**. Si ya existía, se actualizan sus datos de contacto.
 3. Se registra el pedido en la base de **pedidos** con estado *Recibido*.
 4. Se le muestra al cliente la fecha de entrega y el precio.
-5. Se avisa al propietario por mail, WhatsApp o ambos, según lo que elija en el panel.
+5. Se avisa al propietario por mail, Telegram o ambos, según lo que elija en el panel.
 
 ### Historial del cliente
 
@@ -32,9 +32,15 @@ En la pestaña **Pedidos** del panel, el propietario puede filtrar (criterios co
 
 ### Notificaciones al propietario
 
-En el panel (**Configuración → Notificaciones de nuevos pedidos**) el propietario elige recibir los avisos por **mail**, **WhatsApp** o **ambos**, y carga su email, su teléfono (formato internacional, ej. `+5491112345678`) y la API key de [CallMeBot](https://www.callmebot.com/blog/free-api-whatsapp-messages/). El valor por defecto es solo mail. Cada canal es independiente: si uno falla, el pedido y el otro aviso igual se registran.
+En el panel (**Configuración → Notificaciones de nuevos pedidos**) el propietario elige recibir los avisos por **mail**, **Telegram** o **ambos**, y carga su email y su ID de chat de Telegram. El valor por defecto es solo mail. Cada canal es independiente: si uno falla, el pedido y el otro aviso igual se registran.
 
-**Activar WhatsApp o cambiar el celular:** desde el WhatsApp del número nuevo, enviar `I allow callmebot to send me messages` al número del bot (figura en callmebot.com). CallMeBot responde con una API key, que se carga en el panel junto al teléfono. La key está atada al número, por eso el panel no deja guardar un teléfono distinto sin una API key nueva.
+**Configurar Telegram (una sola vez):**
+1. Quien administra el sistema crea el bot hablando con `@BotFather` en Telegram (comando `/newbot`) y carga el token que le da en la variable de entorno `TELEGRAM_BOT_TOKEN` (en Railway: Variables).
+2. El propietario abre ese bot y toca **Iniciar**; si no, el bot no puede escribirle.
+3. El propietario busca `@userinfobot`, toca **Iniciar** y copia el número que figura como *Id*.
+4. En el panel se pega ese número en "ID de chat de Telegram", se elige el canal y se guarda.
+
+Si el propietario cambia de celular no hay que hacer nada: Telegram está atado a su cuenta, no a su número. Para recibir los avisos en un grupo, se agrega el bot al grupo y se usa el ID del grupo (negativo).
 
 **Cambiar el mail:** escribir el email nuevo en el panel y guardar. Con el remitente de prueba de Resend (`onboarding@resend.dev`) solo se entrega a la dirección con la que se registró la cuenta de Resend; para otro destinatario hay que registrar la cuenta con ese mail o verificar un dominio propio y actualizar `MAIL_FROM`.
 
@@ -54,6 +60,7 @@ En el panel (**Configuración → Notificaciones de nuevos pedidos**) el propiet
 | `OWNER_EMAIL` | Email inicial del propietario (después se cambia desde el panel) | — |
 | `RESEND_API_KEY` | Envío de mails con [Resend](https://resend.com) (recomendado en Railway) | — |
 | `MAIL_FROM` | Remitente de los mails | `Pedidos Acai <onboarding@resend.dev>` |
+| `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram para los avisos (se crea con `@BotFather`) | — |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE` | Servidor de correo SMTP (alternativa a Resend) | — |
 | `TZ_NEGOCIO` | Zona horaria para fechas y hora de corte | `America/Argentina/Buenos_Aires` |
 | `DB_PATH` | Archivo SQLite | `data/acai.db`, o `acai.db` dentro del volumen de Railway si hay uno |
