@@ -253,6 +253,50 @@ test('notificaciones: canal mail / telegram / ambos y validaciones', async () =>
   }
 });
 
+test('borrado lógico de pedidos', async () => {
+  const otro = { nombre: 'Pablo Ruiz', dni: '26000111', direccion: 'Calle 3', telefono: '11 2222-3333' };
+  const crear = async cantidad => (await (await post('/api/pedidos', { ...otro, cantidad })).json());
+  const ids = async qs => (await (await adm('/pedidos' + qs)).json()).map(x => x.id);
+  const delAdm = id => fetch(base + '/api/admin/pedidos/' + id, { method: 'DELETE', headers: { Authorization: auth } });
+
+  const p1 = await crear(8);   // acumulado 8
+  const p2 = await crear(5);   // acumulado 13 -> supera el umbral (10): descuento
+  assert.equal(p2.descuento_pct, 15);
+
+  // Requiere autenticación
+  assert.equal((await fetch(base + '/api/admin/pedidos/' + p2.pedido_id, { method: 'DELETE' })).status, 401);
+
+  // Se marca como eliminado; no se puede eliminar dos veces ni uno inexistente
+  assert.equal((await delAdm(p2.pedido_id)).status, 200);
+  assert.equal((await delAdm(p2.pedido_id)).status, 404);
+  assert.equal((await delAdm(999999)).status, 404);
+
+  // El cliente ya no lo ve
+  const hist = await (await fetch(base + '/api/mis-pedidos?dni=' + otro.dni)).json();
+  assert.deepEqual(hist.map(h => h.id), [p1.pedido_id]);
+
+  // El propietario tampoco, salvo que lo pida en el filtro
+  assert.ok(!(await ids('')).includes(p2.pedido_id), 'por defecto se ocultan');
+  assert.deepEqual(await ids('?dni=' + otro.dni + '&eliminados=solo'), [p2.pedido_id]);
+  assert.deepEqual(await ids('?dni=' + otro.dni + '&eliminados=todos'), [p2.pedido_id, p1.pedido_id]);
+  const eliminado = (await (await adm('/pedidos?eliminados=solo&dni=' + otro.dni)).json())[0];
+  assert.match(eliminado.eliminado_en, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  assert.equal((await adm('/pedidos?eliminados=cualquiera')).status, 400);
+
+  // Un pedido eliminado no se puede modificar
+  assert.equal((await adm('/pedidos/' + p2.pedido_id, 'PATCH', { estado: 'entregado' })).status, 404);
+
+  // No cuenta para el descuento mensual: 8 (activo) + 1 = 9, no llega al umbral
+  const p3 = await crear(1);
+  assert.equal(p3.baldes_acumulados, 9);
+  assert.equal(p3.descuento_pct, 0);
+
+  // Clientes: solo cuentan los pedidos activos
+  const cli = (await (await adm('/clientes')).json()).find(c => c.dni === otro.dni);
+  assert.equal(cli.pedidos, 2);
+  assert.equal(cli.baldes_totales, 9);
+});
+
 test('el panel requiere autenticación', async () => {
   assert.equal((await fetch(base + '/api/admin/pedidos')).status, 401);
   assert.equal((await fetch(base + '/admin')).status, 401);

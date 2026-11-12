@@ -64,3 +64,6 @@ td select { width: auto; padding: 6px 8px; }
 .stat { background: #fff; border: 1px solid var(--borde); border-radius: 12px; padding: 14px; }
 .stat .v { font-size: 1.5rem; font-weight: 700; color: var(--acai); }
 .stat .l { color: var(--muted); font-size: .85rem; }
+tr.eliminado td { opacity: .55; font-style: italic; }
+button.peligro { background: #fff; color: var(--error); border: 1px solid var(--error); padding: 6px 10px; font-size: .85rem; }
+button.peligro:hover { background: var(--error-bg); }

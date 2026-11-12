@@ -75,7 +75,7 @@ app.post('/api/pedidos', async (req, res) => {
 
     // 2. Precio y descuento según baldes acumulados en el mes calendario actual.
     const baldesPrevios = db.prepare(
-      'SELECT COALESCE(SUM(cantidad), 0) AS total FROM pedidos WHERE cliente_id = ? AND substr(fecha_pedido, 1, 7) = ?'
+      'SELECT COALESCE(SUM(cantidad), 0) AS total FROM pedidos WHERE cliente_id = ? AND substr(fecha_pedido, 1, 7) = ? AND eliminado_en IS NULL'
     ).get(cliente.id, mesDe(ahora.fecha)).total;
     const precio = calcularPrecio({ cantidad, baldesPrevios, config });
     const fechaEntrega = calcularFechaEntrega(ahora, config.hora_corte);
@@ -157,7 +157,7 @@ app.get('/api/mis-pedidos', (req, res) => {
   else if (desde && hasta && desde > hasta) errores.push('La fecha "desde" debe ser anterior o igual a "hasta".');
   if (errores.length) return res.status(400).json({ errores });
 
-  const where = ['c.dni = ?'];
+  const where = ['c.dni = ?', 'p.eliminado_en IS NULL']; // los pedidos eliminados no se ven
   const params = [dni];
   if (desde) { where.push('p.fecha_pedido >= ?'); params.push(desde); }
   if (hasta) { where.push('p.fecha_pedido <= ?'); params.push(hasta); }
@@ -218,11 +218,13 @@ admin.get('/pedidos', (req, res) => {
   const nombre = q('nombre');
   const comentario = q('comentario');
   const descuento = q('descuento');
+  const eliminados = q('eliminados'); // '' = solo activos | 'solo' = solo eliminados | 'todos' = ambos
   const fechas = { desde: q('desde'), hasta: q('hasta'), entrega_desde: q('entrega_desde'), entrega_hasta: q('entrega_hasta') };
 
   const errores = [];
   if (estado && !ESTADOS.includes(estado)) errores.push('Estado inválido.');
   if (descuento && !['con', 'sin'].includes(descuento)) errores.push('Filtro de descuento inválido.');
+  if (eliminados && !['solo', 'todos'].includes(eliminados)) errores.push('Filtro de eliminados inválido.');
   for (const [k, v] of Object.entries(fechas)) {
     if (v && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v + 'T00:00:00Z')))) errores.push(`Fecha inválida (${k}).`);
   }
@@ -233,6 +235,8 @@ admin.get('/pedidos', (req, res) => {
   const esc = s => s.replace(/[\\%_]/g, '\\$&');
   const where = [];
   const params = [];
+  if (eliminados === '') where.push('p.eliminado_en IS NULL');
+  if (eliminados === 'solo') where.push('p.eliminado_en IS NOT NULL');
   if (estado) { where.push('p.estado = ?'); params.push(estado); }
   if (dni) { where.push("c.dni LIKE ? ESCAPE '\\'"); params.push(`%${esc(dni)}%`); }
   if (fechas.desde) { where.push('p.fecha_pedido >= ?'); params.push(fechas.desde); }
@@ -263,9 +267,20 @@ admin.patch('/pedidos/:id', (req, res) => {
   const { estado } = req.body;
   if (!ESTADOS.includes(estado)) return res.status(400).json({ errores: ['Estado inválido.'] });
   const a = ahoraLocal();
-  const r = db.prepare('UPDATE pedidos SET estado = ?, actualizado_en = ? WHERE id = ?')
+  const r = db.prepare('UPDATE pedidos SET estado = ?, actualizado_en = ? WHERE id = ? AND eliminado_en IS NULL')
     .run(estado, `${a.fecha} ${a.hora}`, Number(req.params.id));
   if (!r.changes) return res.status(404).json({ errores: ['Pedido no encontrado.'] });
+  res.json({ ok: true });
+});
+
+// Borrado lógico: el pedido queda en la base pero marcado como eliminado (no se ve para el cliente
+// ni para el propietario salvo que este lo pida en el filtro, y no cuenta para el descuento mensual).
+admin.delete('/pedidos/:id', (req, res) => {
+  const a = ahoraLocal();
+  const marca = `${a.fecha} ${a.hora}`;
+  const r = db.prepare('UPDATE pedidos SET eliminado_en = ?, actualizado_en = ? WHERE id = ? AND eliminado_en IS NULL')
+    .run(marca, marca, Number(req.params.id));
+  if (!r.changes) return res.status(404).json({ errores: ['Pedido no encontrado o ya eliminado.'] });
   res.json({ ok: true });
 });
 
@@ -277,7 +292,7 @@ admin.get('/clientes', (req, res) => {
            COALESCE(SUM(p.cantidad), 0) AS baldes_totales,
            COALESCE(SUM(CASE WHEN substr(p.fecha_pedido, 1, 7) = ? THEN p.cantidad END), 0) AS baldes_mes,
            COALESCE(SUM(p.total), 0) AS facturado
-    FROM clientes c LEFT JOIN pedidos p ON p.cliente_id = c.id
+    FROM clientes c LEFT JOIN pedidos p ON p.cliente_id = c.id AND p.eliminado_en IS NULL
     GROUP BY c.id
     ORDER BY c.nombre`).all(mes);
   res.json(rows);

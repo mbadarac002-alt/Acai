@@ -42,6 +42,7 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 | creado_en, actualizado_en | TEXT | `YYYY-MM-DD HH:MM` local |
 | fecha_entrega | TEXT | `YYYY-MM-DD` |
 | estado | TEXT | `recibido` \| `en_proceso` \| `entregado` (CHECK) |
+| eliminado_en | TEXT | `NULL` si el pedido está activo; fecha/hora local (`YYYY-MM-DD HH:MM`) en que se lo marcó como eliminado (borrado lógico). Las bases anteriores se migran al arrancar |
 | comentarios | TEXT | texto libre del cliente para este pedido; `''` si no escribió nada (hasta 300 caracteres). Las bases anteriores se migran al arrancar |
 
 ### `config` (clave/valor)
@@ -123,7 +124,8 @@ Error interno → 500 y rollback (cliente y pedido se registran en una sola tran
 | GET | `/api/admin/config` | Configuración actual |
 | PUT | `/api/admin/config` | Actualiza configuración |
 | GET | `/api/admin/pedidos` | Lista pedidos (más recientes primero), con filtros opcionales combinables (AND), ver abajo |
-| PATCH | `/api/admin/pedidos/:id` | Body `{ estado }`; 404 si no existe |
+| PATCH | `/api/admin/pedidos/:id` | Body `{ estado }`; 404 si no existe o está eliminado |
+| DELETE | `/api/admin/pedidos/:id` | Borrado lógico: marca el pedido como eliminado (`eliminado_en`); 404 si no existe o ya estaba eliminado. La confirmación se pide en el panel antes de llamar |
 | GET | `/api/admin/clientes` | Clientes con totales: pedidos, baldes_totales, baldes_mes (mes calendario actual), facturado |
 
 **Filtros de `GET /api/admin/pedidos`** (todos opcionales):
@@ -132,6 +134,7 @@ Error interno → 500 y rollback (cliente y pedido se registran en una sola tran
 | `dni` | contiene (parcial; se ignoran caracteres no numéricos) |
 | `nombre` | contiene, sin distinguir mayúsculas ni acentos (se compara normalizado en la aplicación) |
 | `comentario` | el comentario del pedido contiene el texto, sin distinguir mayúsculas ni acentos |
+| `eliminados` | vacío: solo pedidos activos (por defecto); `solo`: solo eliminados; `todos`: ambos |
 | `estado` | `recibido` \| `en_proceso` \| `entregado` |
 | `descuento` | `con` (descuento_pct > 0) \| `sin` |
 | `desde`, `hasta` | rango de `fecha_pedido`, inclusivo |

@@ -36,6 +36,12 @@
               <option value="con">Con descuento</option>
               <option value="sin">Sin descuento</option>
             </select></div>
+          <div class="field"><label for="f_eliminados">Pedidos eliminados</label>
+            <select id="f_eliminados" name="eliminados">
+              <option value="">Ocultar eliminados</option>
+              <option value="solo">Ver solo eliminados</option>
+              <option value="todos">Ver activos y eliminados</option>
+            </select></div>
           <div class="field"><label for="f_desde">Pedido desde</label><input id="f_desde" name="desde" type="date"></div>
           <div class="field"><label for="f_hasta">Pedido hasta</label><input id="f_hasta" name="hasta" type="date"></div>
           <div class="field"><label for="f_entrega_desde">Entrega desde</label><input id="f_entrega_desde" name="entrega_desde" type="date"></div>
@@ -46,7 +52,7 @@
       </form>
       <p class="hint" id="resumen" style="margin-top:12px"></p>
       <div class="tabla-wrap"><table>
-        <thead><tr><th>#</th><th>Fecha</th><th>Cliente</th><th>DNI</th><th>Teléfono</th><th>Dirección</th><th class="num">Baldes</th><th class="num">Desc.</th><th class="num">Total</th><th>Entrega</th><th>Comentarios</th><th>Estado</th></tr></thead>
+        <thead><tr><th>#</th><th>Fecha</th><th>Cliente</th><th>DNI</th><th>Teléfono</th><th>Dirección</th><th class="num">Baldes</th><th class="num">Desc.</th><th class="num">Total</th><th>Entrega</th><th>Comentarios</th><th>Estado</th><th></th></tr></thead>
         <tbody id="pedidos"></tbody>
       </table></div>
       <p class="vacio" id="pedidosVacio" hidden>No hay pedidos.</p>
@@ -152,11 +158,16 @@ async function cargarPedidos() {
   }
   const tb = $('#pedidos'); tb.innerHTML = '';
   $('#pedidosVacio').hidden = rows.length > 0;
-  const baldes = rows.reduce((s, p) => s + p.cantidad, 0);
-  const total = rows.reduce((s, p) => s + p.total, 0);
-  $('#resumen').textContent = `${rows.length} pedido(s) · ${baldes} baldes · ${pesos(total)}`;
+  // El resumen cuenta solo los pedidos activos; los eliminados se informan aparte.
+  const activos = rows.filter(p => !p.eliminado_en);
+  const baldes = activos.reduce((s, p) => s + p.cantidad, 0);
+  const total = activos.reduce((s, p) => s + p.total, 0);
+  const nEliminados = rows.length - activos.length;
+  $('#resumen').textContent = `${activos.length} pedido(s) · ${baldes} baldes · ${pesos(total)}` +
+    (nEliminados ? ` · ${nEliminados} eliminado(s) (no incluidos en los totales)` : '');
   rows.forEach(p => {
     const tr = document.createElement('tr');
+    if (p.eliminado_en) tr.className = 'eliminado';
     tr.append(td('#' + p.id), td(ddmm(p.creado_en)), td(p.nombre), td(p.dni), td(p.telefono), td(p.direccion),
       td(p.cantidad, 'num'), td(p.descuento_pct ? p.descuento_pct + '%' : '—', 'num'), td(pesos(p.total), 'num'), td(ddmm(p.fecha_entrega)), td(p.comentarios || '—'));
     const cel = document.createElement('td');
@@ -168,6 +179,25 @@ async function cargarPedidos() {
       catch (e) { alert(e.join('\n')); sel.value = p.estado; }
     });
     cel.appendChild(sel); tr.appendChild(cel);
+
+    const acc = document.createElement('td');
+    if (p.eliminado_en) {
+      sel.disabled = true;
+      acc.textContent = 'Eliminado el ' + ddmm(p.eliminado_en);
+    } else {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'peligro'; btn.textContent = 'Eliminar';
+      btn.addEventListener('click', async () => {
+        const ok = confirm(`¿Eliminar el pedido #${p.id} de ${p.nombre} (${p.cantidad} baldes, ${pesos(p.total)})?\n\n` +
+          'Dejará de verse para el cliente y para vos (salvo que elijas ver los eliminados en el filtro) ' +
+          'y no contará para el descuento mensual.');
+        if (!ok) return;
+        try { await api('/pedidos/' + p.id, { method: 'DELETE' }); cargarPedidos(); cargarStats(); }
+        catch (e) { alert(Array.isArray(e) ? e.join('\n') : 'No se pudo eliminar el pedido.'); }
+      });
+      acc.appendChild(btn);
+    }
+    tr.appendChild(acc);
     tb.appendChild(tr);
   });
 }

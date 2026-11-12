@@ -45,9 +45,14 @@ db.exec(`
   );
 `);
 
-// Migración: bases creadas antes de existir el campo de comentarios.
-if (!db.prepare('PRAGMA table_info(pedidos)').all().some(c => c.name === 'comentarios')) {
+// Migraciones: bases creadas antes de existir ciertos campos.
+const columnasPedidos = db.prepare('PRAGMA table_info(pedidos)').all().map(c => c.name);
+if (!columnasPedidos.includes('comentarios')) {
   db.exec("ALTER TABLE pedidos ADD COLUMN comentarios TEXT NOT NULL DEFAULT ''");
+}
+// Borrado lógico: NULL = pedido activo; con valor = fecha/hora (local) en que se marcó como eliminado.
+if (!columnasPedidos.includes('eliminado_en')) {
+  db.exec('ALTER TABLE pedidos ADD COLUMN eliminado_en TEXT');
 }
 
 const DEFAULTS = {

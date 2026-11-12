@@ -30,6 +30,10 @@ En la página de pedidos, la sección **Mis pedidos** permite consultar el histo
 
 En la pestaña **Pedidos** del panel, el propietario puede filtrar (criterios combinables, se aplican al escribir) por DNI, nombre del cliente y texto del comentario (ambos sin distinguir mayúsculas ni acentos), estado, con/sin descuento, rango de fecha del pedido y rango de fecha de entrega. Se muestra un resumen de los resultados: cantidad de pedidos, baldes y total.
 
+### Eliminar pedidos
+
+En la pestaña **Pedidos** del panel, cada pedido tiene un botón **Eliminar** que pide confirmación. El borrado es **lógico**: el pedido queda en la base de datos marcado como eliminado, pero deja de verse para el cliente (en "Mis pedidos") y para el propietario. El propietario puede verlos eligiendo en el filtro **Pedidos eliminados** la opción "Ver solo eliminados" o "Ver activos y eliminados"; ahí aparecen atenuados, con la fecha en que se eliminaron. Un pedido eliminado no cuenta para el descuento mensual ni para los totales de clientes y del resumen, y no puede modificarse. No hay opción para restaurarlo desde el panel.
+
 ### Notificaciones al propietario
 
 En el panel (**Configuración → Notificaciones de nuevos pedidos**) el propietario elige recibir los avisos por **mail**, **Telegram** o **ambos**, y carga su email y su ID de chat de Telegram. El valor por defecto es solo mail. Cada canal es independiente: si uno falla, el pedido y el otro aviso igual se registran.
