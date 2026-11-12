@@ -8,6 +8,27 @@
 </head>
 <body>
   <header><div class="wrap"><h1>Açaí · Panel del propietario</h1><p><a href="/" style="color:#fff">Ver página de pedidos</a></p></div></header>
+  <dialog id="dlgCobro">
+    <form id="formCobro" method="dialog" novalidate>
+      <h2 id="cobroTitulo">Registrar cobro</h2>
+      <p class="hint" id="cobroTotal"></p>
+      <div class="field"><label for="cobroForma">Forma de pago</label>
+        <select id="cobroForma">
+          <option value="contado">Contado (efectivo)</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="combinado">Combinación de ambas</option>
+        </select></div>
+      <div class="grid">
+        <div class="field"><label for="cobroEfectivo">Efectivo ($)</label><input id="cobroEfectivo" type="number" min="0" step="0.01" inputmode="decimal"></div>
+        <div class="field"><label for="cobroTransf">Transferencia ($)</label><input id="cobroTransf" type="number" min="0" step="0.01" inputmode="decimal"></div>
+      </div>
+      <div id="cobroMsg"></div>
+      <div class="acciones">
+        <button type="button" class="secundario" id="cobroCancelar">Cancelar</button>
+        <button type="submit" id="cobroConfirmar">Confirmar cobro</button>
+      </div>
+    </form>
+  </dialog>
   <main class="wrap">
     <div class="stats" id="stats"></div>
     <div class="tabs">
@@ -29,6 +50,7 @@
               <option value="recibido">Recibido</option>
               <option value="en_proceso">En proceso</option>
               <option value="entregado">Entregado</option>
+              <option value="cobrado">Cobrado</option>
             </select></div>
           <div class="field"><label for="f_descuento">Descuento</label>
             <select id="f_descuento" name="descuento">
@@ -113,7 +135,7 @@
 const $ = s => document.querySelector(s);
 const pesos = n => '$' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const ddmm = iso => iso ? iso.slice(0, 10).split('-').reverse().join('/') + iso.slice(10) : '';
-const ESTADOS = { recibido: 'Recibido', en_proceso: 'En proceso', entregado: 'Entregado' };
+const ESTADOS = { recibido: 'Recibido', en_proceso: 'En proceso', entregado: 'Entregado', cobrado: 'Cobrado' };
 
 const api = (url, opts = {}) => fetch('/api/admin' + url, {
   ...opts, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
@@ -130,11 +152,12 @@ document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click
 async function cargarStats() {
   const todos = await api('/pedidos');
   const cuenta = e => todos.filter(p => p.estado === e).length;
-  const pendientesBaldes = todos.filter(p => p.estado !== 'entregado').reduce((s, p) => s + p.cantidad, 0);
+  const pendientesBaldes = todos.filter(p => p.estado !== 'entregado' && p.estado !== 'cobrado').reduce((s, p) => s + p.cantidad, 0);
   const stats = [
     [cuenta('recibido'), 'Recibidos'],
     [cuenta('en_proceso'), 'En proceso'],
     [cuenta('entregado'), 'Entregados'],
+    [cuenta('cobrado'), 'Cobrados'],
     [pendientesBaldes, 'Baldes por entregar'],
   ];
   const box = $('#stats'); box.innerHTML = '';
@@ -145,6 +168,55 @@ async function cargarStats() {
     d.append(a, b); box.appendChild(d);
   });
 }
+
+// Diálogo de cobro: devuelve { pago_efectivo, pago_transferencia } o null si se cancela.
+// Con corregir = true se abre precargado con el pago actual del pedido.
+function pedirFormaDePago(p, corregir = false) {
+  const dlg = $('#dlgCobro'), forma = $('#cobroForma'), ef = $('#cobroEfectivo'), tr = $('#cobroTransf');
+  const total = Math.round(p.total * 100) / 100;
+  $('#cobroTitulo').textContent = `${corregir ? 'Corregir cobro' : 'Registrar cobro'} del pedido #${p.id}`;
+  $('#cobroConfirmar').textContent = corregir ? 'Guardar corrección' : 'Confirmar cobro';
+  $('#cobroTotal').textContent = `${p.nombre} · Total a cobrar: ${pesos(total)}`;
+  $('#cobroMsg').innerHTML = '';
+  forma.value = 'contado';
+  const previo = corregir ? { ef: Number(p.pago_efectivo), tr: Number(p.pago_transferencia) } : null;
+  if (previo) forma.value = previo.ef > 0 && previo.tr > 0 ? 'combinado' : (previo.tr > 0 ? 'transferencia' : 'contado');
+  const aplicar = () => {
+    ef.disabled = forma.value !== 'combinado'; tr.disabled = forma.value !== 'combinado';
+    if (forma.value === 'contado') { ef.value = total; tr.value = 0; }
+    if (forma.value === 'transferencia') { ef.value = 0; tr.value = total; }
+    if (forma.value === 'combinado') { ef.value = previo ? previo.ef : ''; tr.value = previo ? previo.tr : ''; }
+  };
+  // En la combinación, al cargar un monto el otro se completa con lo que falta.
+  const resto = (src, dst) => { if (forma.value === 'combinado' && src.value !== '') dst.value = Math.max(0, Math.round((total - Number(src.value)) * 100) / 100); };
+  forma.onchange = aplicar; ef.oninput = () => resto(ef, tr); tr.oninput = () => resto(tr, ef);
+  aplicar();
+  return new Promise(resolve => {
+    let resultado = null;
+    $('#cobroCancelar').onclick = () => dlg.close();
+    $('#formCobro').onsubmit = e => {
+      e.preventDefault();
+      const e1 = Math.round(Number(ef.value || 0) * 100), t1 = Math.round(Number(tr.value || 0) * 100);
+      const msg = $('#cobroMsg'); msg.innerHTML = '';
+      if (e1 < 0 || t1 < 0 || e1 + t1 !== Math.round(total * 100)) {
+        const box = document.createElement('div'); box.className = 'msg error';
+        box.textContent = `El efectivo y la transferencia deben sumar ${pesos(total)}.`;
+        msg.appendChild(box); return;
+      }
+      resultado = { pago_efectivo: e1 / 100, pago_transferencia: t1 / 100 };
+      dlg.close();
+    };
+    dlg.onclose = () => resolve(resultado);
+    dlg.showModal();
+  });
+}
+
+const textoPago = p => {
+  const partes = [];
+  if (p.pago_efectivo > 0) partes.push('Contado ' + pesos(p.pago_efectivo));
+  if (p.pago_transferencia > 0) partes.push('Transf. ' + pesos(p.pago_transferencia));
+  return partes.join(' · ');
+};
 
 async function cargarPedidos() {
   const params = new URLSearchParams();
@@ -174,13 +246,22 @@ async function cargarPedidos() {
     const sel = document.createElement('select');
     Object.entries(ESTADOS).forEach(([v, l]) => { const o = new Option(l, v, false, v === p.estado); sel.add(o); });
     sel.className = 'badge ' + p.estado;
+    const detallePago = document.createElement('div'); detallePago.className = 'hint';
+    detallePago.textContent = p.estado === 'cobrado' ? textoPago(p) + (p.cobro_corregido_en ? ' (corregido ' + ddmm(p.cobro_corregido_en) + ')' : '') : '';
     sel.addEventListener('change', async () => {
-      try { await api('/pedidos/' + p.id, { method: 'PATCH', body: JSON.stringify({ estado: sel.value }) }); sel.className = 'badge ' + sel.value; cargarStats(); }
-      catch (e) { alert(e.join('\n')); sel.value = p.estado; }
+      const body = { estado: sel.value };
+      if (sel.value === 'cobrado') {
+        const pago = await pedirFormaDePago(p);
+        if (!pago) { sel.value = p.estado; return; } // canceló: no se cambia nada
+        Object.assign(body, pago);
+      }
+      try { await api('/pedidos/' + p.id, { method: 'PATCH', body: JSON.stringify(body) }); cargarPedidos(); cargarStats(); }
+      catch (e) { alert(Array.isArray(e) ? e.join('\n') : 'No se pudo cambiar el estado. Revisá la conexión e intentá de nuevo.'); cargarPedidos(); cargarStats(); }
     });
-    cel.appendChild(sel); tr.appendChild(cel);
+    cel.append(sel, detallePago); tr.appendChild(cel);
 
     const acc = document.createElement('td');
+    if (p.estado === 'cobrado') sel.disabled = true; // el estado cobrado es definitivo; solo se puede corregir la forma de pago
     if (p.eliminado_en) {
       sel.disabled = true;
       acc.textContent = 'Eliminado el ' + ddmm(p.eliminado_en);
@@ -195,6 +276,17 @@ async function cargarPedidos() {
         try { await api('/pedidos/' + p.id, { method: 'DELETE' }); cargarPedidos(); cargarStats(); }
         catch (e) { alert(Array.isArray(e) ? e.join('\n') : 'No se pudo eliminar el pedido.'); }
       });
+      if (p.estado === 'cobrado') {
+        const corr = document.createElement('button');
+        corr.type = 'button'; corr.className = 'secundario'; corr.textContent = 'Corregir cobro';
+        corr.addEventListener('click', async () => {
+          const pago = await pedirFormaDePago(p, true);
+          if (!pago) return;
+          try { await api('/pedidos/' + p.id + '/cobro', { method: 'PATCH', body: JSON.stringify(pago) }); cargarPedidos(); }
+          catch (e) { alert(Array.isArray(e) ? e.join('\n') : 'No se pudo corregir el cobro. Revisá la conexión e intentá de nuevo.'); cargarPedidos(); }
+        });
+        acc.append(corr, ' ');
+      }
       acc.appendChild(btn);
     }
     tr.appendChild(acc);
