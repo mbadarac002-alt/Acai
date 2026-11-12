@@ -34,9 +34,13 @@ db.exec(`
     creado_en          TEXT NOT NULL,  -- YYYY-MM-DD HH:MM (hora local)
     fecha_entrega      TEXT NOT NULL,  -- YYYY-MM-DD
     estado             TEXT NOT NULL DEFAULT 'recibido'
-                       CHECK (estado IN ('recibido','en_proceso','entregado')),
+                       CHECK (estado IN ('recibido','en_proceso','entregado','cobrado')),
     actualizado_en     TEXT NOT NULL,
-    comentarios        TEXT NOT NULL DEFAULT ''
+    comentarios        TEXT NOT NULL DEFAULT '',
+    eliminado_en       TEXT,
+    pago_efectivo      REAL NOT NULL DEFAULT 0,  -- parte del total cobrada en efectivo (solo si estado = cobrado)
+    pago_transferencia REAL NOT NULL DEFAULT 0,  -- parte del total cobrada por transferencia
+    fecha_cobro        TEXT                      -- YYYY-MM-DD HH:MM (hora local) en que pasó a cobrado
   );
 
   CREATE TABLE IF NOT EXISTS config (
@@ -53,6 +57,47 @@ if (!columnasPedidos.includes('comentarios')) {
 // Borrado lógico: NULL = pedido activo; con valor = fecha/hora (local) en que se marcó como eliminado.
 if (!columnasPedidos.includes('eliminado_en')) {
   db.exec('ALTER TABLE pedidos ADD COLUMN eliminado_en TEXT');
+}
+
+// Bases creadas antes del estado 'cobrado': SQLite no permite modificar un CHECK, así que se reconstruye
+// la tabla (conservando todos los datos) con el CHECK nuevo y las columnas de forma de pago.
+const sqlPedidos = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pedidos'").get().sql;
+if (!sqlPedidos.includes("'cobrado'")) {
+  const cols = db.prepare('PRAGMA table_info(pedidos)').all().map(c => c.name).join(', ');
+  db.exec(`
+    BEGIN;
+    ALTER TABLE pedidos RENAME TO pedidos_vieja;
+    CREATE TABLE pedidos (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      cliente_id         INTEGER NOT NULL REFERENCES clientes(id),
+      cantidad           INTEGER NOT NULL,
+      precio_unitario    REAL NOT NULL,
+      subtotal           REAL NOT NULL,
+      baldes_acumulados  INTEGER NOT NULL,
+      descuento_pct      REAL NOT NULL DEFAULT 0,
+      descuento_monto    REAL NOT NULL DEFAULT 0,
+      total              REAL NOT NULL,
+      fecha_pedido       TEXT NOT NULL,
+      creado_en          TEXT NOT NULL,
+      fecha_entrega      TEXT NOT NULL,
+      estado             TEXT NOT NULL DEFAULT 'recibido'
+                         CHECK (estado IN ('recibido','en_proceso','entregado','cobrado')),
+      actualizado_en     TEXT NOT NULL,
+      comentarios        TEXT NOT NULL DEFAULT '',
+      eliminado_en       TEXT,
+      pago_efectivo      REAL NOT NULL DEFAULT 0,
+      pago_transferencia REAL NOT NULL DEFAULT 0,
+      fecha_cobro        TEXT
+    );
+    INSERT INTO pedidos (${cols}) SELECT ${cols} FROM pedidos_vieja;
+    DROP TABLE pedidos_vieja;
+    COMMIT;
+  `);
+}
+
+// Corrección de cobros: fecha/hora local de la última corrección de la forma de pago (NULL = nunca se corrigió).
+if (!db.prepare('PRAGMA table_info(pedidos)').all().some(c => c.name === 'cobro_corregido_en')) {
+  db.exec('ALTER TABLE pedidos ADD COLUMN cobro_corregido_en TEXT');
 }
 
 const DEFAULTS = {

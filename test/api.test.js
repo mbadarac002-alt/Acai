@@ -297,6 +297,98 @@ test('borrado lógico de pedidos', async () => {
   assert.equal(cli.baldes_totales, 9);
 });
 
+test('cobro: el estado cobrado exige forma de pago que sume el total y es final', async () => {
+  const c = { nombre: 'Luis Gómez', dni: '28999111', direccion: 'Calle 1', telefono: '11 4444-0000' };
+  await adm('/config', 'PUT', { precio_balde: 1000, umbral_baldes: 0, descuento_pct: 0, hora_corte: '12:00' });
+  const crear = async n => (await (await post('/api/pedidos', { ...c, cantidad: n })).json()).pedido_id;
+  const get = async id => (await (await adm('/pedidos?dni=' + c.dni)).json()).find(p => p.id === id);
+  const patch = (id, body) => adm('/pedidos/' + id, 'PATCH', body);
+  const id = await crear(3); // total 3000
+
+  // Sin montos, o con montos que no suman el total, se rechaza y el estado no cambia
+  assert.equal((await patch(id, { estado: 'cobrado' })).status, 400);
+  assert.equal((await patch(id, { estado: 'cobrado', pago_efectivo: 1000, pago_transferencia: 1000 })).status, 400);
+  assert.equal((await patch(id, { estado: 'cobrado', pago_efectivo: -500, pago_transferencia: 3500 })).status, 400);
+  assert.equal((await patch(id, { estado: 'cobrado', pago_efectivo: 'abc', pago_transferencia: 3000 })).status, 400);
+  assert.equal((await get(id)).estado, 'recibido');
+
+  // Combinación válida
+  assert.equal((await patch(id, { estado: 'cobrado', pago_efectivo: 1200.5, pago_transferencia: 1799.5 })).status, 200);
+  let p = await get(id);
+  assert.equal(p.estado, 'cobrado');
+  assert.equal(p.pago_efectivo, 1200.5);
+  assert.equal(p.pago_transferencia, 1799.5);
+  assert.match(p.fecha_cobro, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+
+  // Filtro por estado y el cliente ve el estado pero no los montos
+  assert.deepEqual((await (await adm('/pedidos?estado=cobrado&dni=' + c.dni)).json()).map(x => x.id), [id]);
+  const hist = await (await fetch(base + '/api/mis-pedidos?dni=' + c.dni)).json();
+  assert.equal(hist[0].estado, 'cobrado');
+  assert.ok(!('pago_efectivo' in hist[0]));
+
+  // Cobrado es final: no se puede cambiar de estado ni volver a cobrar
+  assert.equal((await patch(id, { estado: 'entregado' })).status, 409);
+  assert.equal((await patch(id, { estado: 'cobrado', pago_efectivo: 3000 })).status, 409);
+  p = await get(id);
+  assert.deepEqual([p.estado, p.pago_efectivo, p.pago_transferencia], ['cobrado', 1200.5, 1799.5]);
+
+  // Corregir cobro: solo en pedidos cobrados, con montos que sumen el total; el estado se mantiene
+  const corregir = (i, body) => adm('/pedidos/' + i + '/cobro', 'PATCH', body);
+  assert.equal((await corregir(id, { pago_efectivo: 100, pago_transferencia: 100 })).status, 400);
+  assert.equal((await corregir(999999, { pago_efectivo: 3000 })).status, 404);
+  assert.equal((await corregir(id, { pago_efectivo: 500, pago_transferencia: 2500 })).status, 200);
+  p = await get(id);
+  assert.deepEqual([p.estado, p.pago_efectivo, p.pago_transferencia], ['cobrado', 500, 2500]);
+  assert.match(p.cobro_corregido_en, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  const sinCobrar = await crear(1);
+  assert.equal((await corregir(sinCobrar, { pago_efectivo: 1000 })).status, 409, 'solo pedidos cobrados');
+
+  // Todo contado / todo transferencia (el otro monto puede omitirse)
+  const id2 = await crear(2), id3 = await crear(1);
+  assert.equal((await patch(id2, { estado: 'cobrado', pago_efectivo: 2000 })).status, 200);
+  assert.equal((await patch(id3, { estado: 'cobrado', pago_transferencia: 1000 })).status, 200);
+  assert.deepEqual([(await get(id2)).pago_efectivo, (await get(id2)).pago_transferencia], [2000, 0]);
+  assert.deepEqual([(await get(id3)).pago_efectivo, (await get(id3)).pago_transferencia], [0, 1000]);
+});
+
+test('migración: una base anterior (sin estado cobrado) se actualiza conservando los datos', () => {
+  const { execFileSync } = require('node:child_process');
+  const dbVieja = path.join(tmp, 'vieja.db');
+  const { DatabaseSync } = require('node:sqlite');
+  const v = new DatabaseSync(dbVieja);
+  v.exec(`
+    CREATE TABLE clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, dni TEXT NOT NULL UNIQUE, nombre TEXT NOT NULL,
+      direccion TEXT NOT NULL, telefono TEXT NOT NULL, creado_en TEXT NOT NULL);
+    CREATE TABLE pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+      cantidad INTEGER NOT NULL, precio_unitario REAL NOT NULL, subtotal REAL NOT NULL, baldes_acumulados INTEGER NOT NULL,
+      descuento_pct REAL NOT NULL DEFAULT 0, descuento_monto REAL NOT NULL DEFAULT 0, total REAL NOT NULL,
+      fecha_pedido TEXT NOT NULL, creado_en TEXT NOT NULL, fecha_entrega TEXT NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'recibido' CHECK (estado IN ('recibido','en_proceso','entregado')),
+      actualizado_en TEXT NOT NULL, comentarios TEXT NOT NULL DEFAULT '', eliminado_en TEXT);
+    INSERT INTO clientes VALUES (1, '30111222', 'Vieja', 'x', '1', '2026-01-01 10:00');
+    INSERT INTO pedidos (cliente_id, cantidad, precio_unitario, subtotal, baldes_acumulados, total, fecha_pedido, creado_en, fecha_entrega, estado, actualizado_en)
+      VALUES (1, 2, 500, 1000, 2, 1000, '2026-01-02', '2026-01-02 09:00', '2026-01-06', 'entregado', '2026-01-02 09:00');
+  `);
+  v.close();
+  const script = `
+    const { db } = require('./src/db');
+    db.prepare("UPDATE pedidos SET estado = 'cobrado', pago_efectivo = 1000 WHERE id = 1").run();
+    console.log(JSON.stringify(db.prepare('SELECT id, estado, total, pago_efectivo, pago_transferencia FROM pedidos').all()));`;
+  const salida = execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', script],
+    { cwd: path.join(__dirname, '..'), env: { ...process.env, DB_PATH: dbVieja } }).toString();
+  assert.deepEqual(JSON.parse(salida), [{ id: 1, estado: 'cobrado', total: 1000, pago_efectivo: 1000, pago_transferencia: 0 }]);
+});
+
+test('el JavaScript de las páginas no tiene errores de sintaxis', () => {
+  const vm = require('node:vm');
+  for (const f of ['admin.html', 'index.html']) {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8');
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+    assert.ok(scripts.length > 0, f + ' tiene script');
+    scripts.forEach(code => assert.doesNotThrow(() => new vm.Script(code), 'sintaxis de ' + f));
+  }
+});
+
 test('el panel requiere autenticación', async () => {
   assert.equal((await fetch(base + '/api/admin/pedidos')).status, 401);
   assert.equal((await fetch(base + '/admin')).status, 401);

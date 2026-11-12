@@ -8,7 +8,7 @@ const { enviarTelegram, normalizarChatId, hayToken } = require('./telegram');
 const app = express();
 app.use(express.json());
 
-const ESTADOS = ['recibido', 'en_proceso', 'entregado'];
+const ESTADOS = ['recibido', 'en_proceso', 'entregado', 'cobrado'];
 const MAX_BALDES = 50;
 const MAX_COMENTARIOS = 300;
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
@@ -263,13 +263,60 @@ admin.get('/pedidos', (req, res) => {
   res.json(rows);
 });
 
+// Valida la forma de pago contra el total del pedido. Devuelve { efectivo, transferencia } (redondeados a
+// centavos) o { error }. Un monto omitido vale 0; los dos deben sumar exactamente el total.
+function validarPago(body, total) {
+  const monto = v => (v === undefined || v === null || v === '') ? 0 : Number(v);
+  const centavos = n => Math.round(n * 100);
+  const efectivo = monto(body.pago_efectivo);
+  const transferencia = monto(body.pago_transferencia);
+  if (![efectivo, transferencia].every(n => Number.isFinite(n) && n >= 0)) {
+    return { error: 'Los montos de la forma de pago deben ser números mayores o iguales a 0.' };
+  }
+  if (centavos(efectivo) + centavos(transferencia) !== centavos(total)) {
+    return { error: `El efectivo y la transferencia deben sumar el total del pedido (${total}).` };
+  }
+  return { efectivo: centavos(efectivo) / 100, transferencia: centavos(transferencia) / 100 };
+}
+
+// Pasar un pedido a 'cobrado' exige la forma de pago: cuánto se cobró en efectivo (contado) y cuánto por
+// transferencia. Los dos montos deben sumar exactamente el total del pedido. 'cobrado' es un estado final:
+// una vez cobrado, el pedido no puede cambiar de estado (así el pago registrado no se pierde ni se pisa).
 admin.patch('/pedidos/:id', (req, res) => {
   const { estado } = req.body;
   if (!ESTADOS.includes(estado)) return res.status(400).json({ errores: ['Estado inválido.'] });
+  const id = Number(req.params.id);
+  const pedido = db.prepare('SELECT total, estado FROM pedidos WHERE id = ? AND eliminado_en IS NULL').get(id);
+  if (!pedido) return res.status(404).json({ errores: ['No se encontró el pedido. Puede que ya haya sido eliminado: actualizá el listado.'] });
+  if (pedido.estado === 'cobrado') return res.status(409).json({ errores: ['Este pedido ya está cobrado, por eso no se puede cambiar su estado. Si cargaste mal el pago, usá "Corregir cobro".'] });
+
   const a = ahoraLocal();
-  const r = db.prepare('UPDATE pedidos SET estado = ?, actualizado_en = ? WHERE id = ? AND eliminado_en IS NULL')
-    .run(estado, `${a.fecha} ${a.hora}`, Number(req.params.id));
-  if (!r.changes) return res.status(404).json({ errores: ['Pedido no encontrado.'] });
+  const ahora = `${a.fecha} ${a.hora}`;
+  let efectivo = 0, transferencia = 0, fechaCobro = null;
+  if (estado === 'cobrado') {
+    const pago = validarPago(req.body, pedido.total);
+    if (pago.error) return res.status(400).json({ errores: [pago.error] });
+    ({ efectivo, transferencia } = pago);
+    fechaCobro = ahora;
+  }
+  db.prepare(`UPDATE pedidos SET estado = ?, actualizado_en = ?, pago_efectivo = ?, pago_transferencia = ?, fecha_cobro = ?
+              WHERE id = ?`).run(estado, ahora, efectivo, transferencia, fechaCobro, id);
+  res.json({ ok: true });
+});
+
+// Corrección de un cobro ya registrado: cambia solo la forma de pago (el estado sigue siendo 'cobrado').
+// Los nuevos montos también deben sumar el total. Se guarda cuándo se corrigió (cobro_corregido_en).
+admin.patch('/pedidos/:id/cobro', (req, res) => {
+  const id = Number(req.params.id);
+  const pedido = db.prepare('SELECT total, estado FROM pedidos WHERE id = ? AND eliminado_en IS NULL').get(id);
+  if (!pedido) return res.status(404).json({ errores: ['No se encontró el pedido. Puede que ya haya sido eliminado: actualizá el listado.'] });
+  if (pedido.estado !== 'cobrado') return res.status(409).json({ errores: ['Este pedido todavía no está cobrado, así que no hay un cobro para corregir. Primero pasalo a "Cobrado".'] });
+  const pago = validarPago(req.body, pedido.total);
+  if (pago.error) return res.status(400).json({ errores: [pago.error] });
+  const a = ahoraLocal();
+  const ahora = `${a.fecha} ${a.hora}`;
+  db.prepare('UPDATE pedidos SET pago_efectivo = ?, pago_transferencia = ?, cobro_corregido_en = ?, actualizado_en = ? WHERE id = ?')
+    .run(pago.efectivo, pago.transferencia, ahora, ahora, id);
   res.json({ ok: true });
 });
 

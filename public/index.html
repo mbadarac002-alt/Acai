@@ -111,7 +111,7 @@ function mostrarConfirmacion(p) {
   $('#confirmacion').hidden = false;
 }
 
-const ESTADOS = { recibido: 'Recibido', en_proceso: 'En proceso', entregado: 'Entregado' };
+const ESTADOS = { recibido: 'Recibido', en_proceso: 'En proceso', entregado: 'Entregado', cobrado: 'Cobrado' };
 const ddmm = iso => iso.split('-').reverse().join('/');
 function celda(texto, cls) { const c = document.createElement('td'); c.textContent = texto; if (cls) c.className = cls; return c; }
 

@@ -41,7 +41,10 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 | fecha_pedido | TEXT | `YYYY-MM-DD` local |
 | creado_en, actualizado_en | TEXT | `YYYY-MM-DD HH:MM` local |
 | fecha_entrega | TEXT | `YYYY-MM-DD` |
-| estado | TEXT | `recibido` \| `en_proceso` \| `entregado` (CHECK) |
+| estado | TEXT | `recibido` \| `en_proceso` \| `entregado` \| `cobrado` (CHECK). Las bases anteriores se migran al arrancar (se reconstruye la tabla conservando los datos) |
+| pago_efectivo, pago_transferencia | REAL | cuánto del total se cobró en efectivo (contado) y por transferencia. Solo tienen valor si `estado = cobrado` (suman exactamente `total`); en otro estado valen 0 |
+| cobro_corregido_en | TEXT | `YYYY-MM-DD HH:MM` local de la última corrección de la forma de pago; `NULL` si nunca se corrigió (se agrega por migración) |
+| fecha_cobro | TEXT | `YYYY-MM-DD HH:MM` local en que el pedido pasó a `cobrado`; `NULL` en otro estado |
 | eliminado_en | TEXT | `NULL` si el pedido está activo; fecha/hora local (`YYYY-MM-DD HH:MM`) en que se lo marcó como eliminado (borrado lógico). Las bases anteriores se migran al arrancar |
 | comentarios | TEXT | texto libre del cliente para este pedido; `''` si no escribió nada (hasta 300 caracteres). Las bases anteriores se migran al arrancar |
 
@@ -82,8 +85,10 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 - Los pedidos ya registrados conservan su fecha de entrega.
 
 ### RN-5 Estados
-- `recibido` (inicial) → `en_proceso` → `entregado`.
-- El panel puede asignar cualquiera de los tres estados (el código no impone el orden).
+- `recibido` (inicial) → `en_proceso` → `entregado` → `cobrado`.
+- El panel puede asignar cualquiera de los estados `recibido`, `en_proceso` y `entregado` en cualquier orden (el código no impone el orden). **`cobrado` es final:** un pedido cobrado no puede cambiar de estado (409) ni volver a cobrarse.
+- **Cobrado y forma de pago:** al pasar un pedido a `cobrado` el panel pide la forma de pago: *contado* (todo efectivo), *transferencia* (todo transferencia) o *combinación* (se indica cuánto de cada una; al cargar un monto el otro se completa con el resto). `pago_efectivo + pago_transferencia` debe ser igual al `total` del pedido (comparado en centavos); si no, el servidor responde 400 y el estado no cambia. Cancelar el diálogo deja el estado como estaba. Como el cobro es definitivo, el selector de estado queda deshabilitado en los pedidos cobrados.
+- **Corregir cobro:** en un pedido cobrado el panel ofrece **Corregir cobro**, que abre el mismo diálogo precargado con el pago actual. Los nuevos montos también deben sumar el total. El estado sigue siendo `cobrado`, `fecha_cobro` no cambia y se registra `cobro_corregido_en` (el panel muestra "corregido" con esa fecha). No hay historial de los montos anteriores. Estos datos son la base para la futura administración de caja; el cliente no los ve.
 
 ### RN-6 Notificación
 - Al crear un pedido se avisa al propietario según `canal_notificacion`: `mail` (por defecto), `telegram` o `ambos`.
@@ -124,7 +129,8 @@ Error interno → 500 y rollback (cliente y pedido se registran en una sola tran
 | GET | `/api/admin/config` | Configuración actual |
 | PUT | `/api/admin/config` | Actualiza configuración |
 | GET | `/api/admin/pedidos` | Lista pedidos (más recientes primero), con filtros opcionales combinables (AND), ver abajo |
-| PATCH | `/api/admin/pedidos/:id` | Body `{ estado }`; 404 si no existe o está eliminado |
+| PATCH | `/api/admin/pedidos/:id` | Body `{ estado }`; si `estado` es `cobrado` también `{ pago_efectivo, pago_transferencia }` (números ≥ 0, uno puede omitirse = 0, deben sumar el total); 400 si el estado es inválido o el pago no cuadra; 404 si no existe o está eliminado; 409 si el pedido ya está cobrado |
+| PATCH | `/api/admin/pedidos/:id/cobro` | Corrige la forma de pago de un pedido cobrado. Body `{ pago_efectivo, pago_transferencia }` (mismas reglas: ≥ 0, suman el total); 400 si no cuadra; 404 si no existe o está eliminado; 409 si el pedido no está cobrado |
 | DELETE | `/api/admin/pedidos/:id` | Borrado lógico: marca el pedido como eliminado (`eliminado_en`); 404 si no existe o ya estaba eliminado. La confirmación se pide en el panel antes de llamar |
 | GET | `/api/admin/clientes` | Clientes con totales: pedidos, baldes_totales, baldes_mes (mes calendario actual), facturado |
 
@@ -135,7 +141,7 @@ Error interno → 500 y rollback (cliente y pedido se registran en una sola tran
 | `nombre` | contiene, sin distinguir mayúsculas ni acentos (se compara normalizado en la aplicación) |
 | `comentario` | el comentario del pedido contiene el texto, sin distinguir mayúsculas ni acentos |
 | `eliminados` | vacío: solo pedidos activos (por defecto); `solo`: solo eliminados; `todos`: ambos |
-| `estado` | `recibido` \| `en_proceso` \| `entregado` |
+| `estado` | `recibido` \| `en_proceso` \| `entregado` \| `cobrado` |
 | `descuento` | `con` (descuento_pct > 0) \| `sin` |
 | `desde`, `hasta` | rango de `fecha_pedido`, inclusivo |
 | `entrega_desde`, `entrega_hasta` | rango de `fecha_entrega`, inclusivo |
