@@ -2,7 +2,7 @@
 const express = require('express');
 const { db } = require('./db');
 const { ahoraLocal } = require('./reglas');
-const { aCentavos, aPesos, precioVigente, calcularCierre, fechaValida, validarFecha } = require('./caja-reglas');
+const { aCentavos, aPesos, precioVigente, calcularCierre, calcularResultado, fechaValida, validarFecha, validarRango, AGRUPACIONES } = require('./caja-reglas');
 
 // ---------- Precios del bowl (RN-C2) ----------
 
@@ -381,6 +381,94 @@ router.delete('/gastos/:id', (req, res) => {
   const ahora = ahoraTexto();
   db.prepare('UPDATE gastos_generales SET eliminado_en = ?, motivo_eliminacion = ?, actualizado_en = ? WHERE id = ?').run(ahora, motivo, ahora, actual.id);
   res.json(gastoPorId(actual.id));
+});
+
+// ---------- Resumen (RN-C1, RN-C6) ----------
+
+/**
+ * Resumen de un período [desde, hasta] (inclusive). Todo se calcula en centavos y sale en pesos.
+ * - Mayorista: pedidos cobrados y no eliminados, por fecha de cobro.
+ * - Minorista: cierres activos de días trabajados (los demás tipos solo cuentan como días no trabajados).
+ * - Gastos generales: por la fecha del gasto (imputación por caja).
+ */
+function resumenDePeriodo({ periodo, desde, hasta }) {
+  let mayEfectivo = 0, mayTransferencia = 0;
+  const pedidos = db.prepare(`
+    SELECT pago_efectivo, pago_transferencia FROM pedidos
+    WHERE estado = 'cobrado' AND eliminado_en IS NULL AND substr(fecha_cobro, 1, 10) BETWEEN ? AND ?
+  `).all(desde, hasta);
+  for (const p of pedidos) { mayEfectivo += aCentavos(p.pago_efectivo); mayTransferencia += aCentavos(p.pago_transferencia); }
+
+  const cierres = db.prepare(`
+    SELECT punto_venta_id, tipo, bowls_efectivo, bowls_transferencia, ingresos_efectivo, ingresos_transferencia, gastos, diferencia
+    FROM cierres_caja WHERE eliminado_en IS NULL AND fecha BETWEEN ? AND ?
+  `).all(desde, hasta);
+  const puntos = db.prepare('SELECT id, nombre FROM puntos_venta WHERE activo = 1 ORDER BY id').all().map(pv => {
+    const x = { bowlsE: 0, bowlsT: 0, ventasE: 0, ventasT: 0, gastos: 0, diferencia: 0, trabajados: 0, noTrabajados: 0 };
+    for (const c of cierres.filter(c => c.punto_venta_id === pv.id)) {
+      if (c.tipo === 'trabajado') {
+        x.trabajados++; x.bowlsE += c.bowls_efectivo; x.bowlsT += c.bowls_transferencia;
+        x.ventasE += c.ingresos_efectivo; x.ventasT += c.ingresos_transferencia; x.gastos += c.gastos; x.diferencia += c.diferencia;
+      } else x.noTrabajados++;
+    }
+    return { pv, x };
+  });
+  const suma = campo => puntos.reduce((s, { x }) => s + x[campo], 0);
+  const minorista = {
+    bowls_efectivo: suma('bowlsE'), bowls_transferencia: suma('bowlsT'),
+    ventas_efectivo: suma('ventasE'), ventas_transferencia: suma('ventasT'), gastos: suma('gastos'),
+  };
+  minorista.ventas_total = minorista.ventas_efectivo + minorista.ventas_transferencia;
+
+  const porCategoria = db.prepare(`
+    SELECT c.nombre AS categoria, c.tipo, SUM(g.monto) AS monto
+    FROM gastos_generales g JOIN categorias_gasto c ON c.id = g.categoria_id
+    WHERE g.eliminado_en IS NULL AND g.fecha BETWEEN ? AND ?
+    GROUP BY c.id ORDER BY c.id
+  `).all(desde, hasta).map(f => ({ ...f }));
+  const generales = { corrientes: 0, stock: 0 };
+  for (const f of porCategoria) generales[f.tipo === 'stock' ? 'stock' : 'corrientes'] += f.monto;
+  const gastosGenerales = generales.corrientes + generales.stock;
+
+  const mayoristaTotal = mayEfectivo + mayTransferencia;
+  const r = calcularResultado({ ventasMayorista: mayoristaTotal, ventasMinorista: minorista.ventas_total, gastosPuntosVenta: minorista.gastos, gastosGenerales });
+
+  return {
+    periodo, desde, hasta,
+    mayorista: { efectivo: aPesos(mayEfectivo), transferencia: aPesos(mayTransferencia), total: aPesos(mayoristaTotal), pedidos: pedidos.length },
+    minorista: {
+      bowls_efectivo: minorista.bowls_efectivo, bowls_transferencia: minorista.bowls_transferencia,
+      ventas_efectivo: aPesos(minorista.ventas_efectivo), ventas_transferencia: aPesos(minorista.ventas_transferencia),
+      ventas_total: aPesos(minorista.ventas_total), gastos: aPesos(minorista.gastos),
+      utilidad_relativa: aPesos(minorista.ventas_total - minorista.gastos),
+      puntos: puntos.map(({ pv, x }) => ({
+        punto_venta_id: pv.id, nombre: pv.nombre, bowls_efectivo: x.bowlsE, bowls_transferencia: x.bowlsT,
+        ventas_efectivo: aPesos(x.ventasE), ventas_transferencia: aPesos(x.ventasT), ventas_total: aPesos(x.ventasE + x.ventasT),
+        gastos: aPesos(x.gastos), utilidad_relativa: aPesos(x.ventasE + x.ventasT - x.gastos),
+        dias_trabajados: x.trabajados, dias_no_trabajados: x.noTrabajados, diferencia_caja: aPesos(x.diferencia),
+      })),
+    },
+    ventas_totales: aPesos(r.ventasTotales),
+    gastos_puntos_venta: aPesos(minorista.gastos),
+    utilidad_relativa: aPesos(r.utilidadRelativa),
+    gastos_generales: {
+      corrientes: aPesos(generales.corrientes), stock: aPesos(generales.stock), total: aPesos(gastosGenerales),
+      por_categoria: porCategoria.map(f => ({ categoria: f.categoria, tipo: f.tipo, monto: aPesos(f.monto) })),
+    },
+    resultado: aPesos(r.resultado),
+  };
+}
+
+router.get('/resumen', (req, res) => {
+  const q = k => String(req.query[k] ?? '').trim();
+  const desde = q('desde'), hasta = q('hasta'), agrupar = q('agrupar') || 'total';
+  const errores = [];
+  const errRango = validarRango(desde, hasta);
+  if (errRango) errores.push(errRango);
+  if (!AGRUPACIONES.includes(agrupar)) errores.push(`La agrupación debe ser: ${AGRUPACIONES.join(', ')}.`);
+  else if (agrupar !== 'total') errores.push('La agrupación por día, semana o mes todavía no está disponible.');
+  if (errores.length) return res.status(400).json({ errores });
+  res.json({ desde, hasta, agrupar, periodos: [resumenDePeriodo({ periodo: 'total', desde, hasta })] });
 });
 
 function listarPuntosVenta(req, res) {
