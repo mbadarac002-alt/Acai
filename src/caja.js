@@ -290,6 +290,75 @@ router.delete('/cierres/:id', (req, res) => {
   res.json(cierrePorId(actual.id));
 });
 
+// ---------- Gastos generales (RN-C5) ----------
+
+/** Valida y normaliza el body de un gasto general (alta y corrección). El monto sale en centavos. */
+function validarDatosGasto(body, hoy) {
+  const errores = [];
+  const b = body || {};
+  const montoNum = vacio(b.monto) ? NaN : Number(b.monto);
+  const monto = Number.isFinite(montoNum) ? aCentavos(montoNum) : NaN;
+  if (!(monto > 0 && montoNum <= MAX_MONTO_PESOS)) {
+    errores.push(`El monto debe ser mayor a 0 (y no superar ${MAX_MONTO_PESOS.toLocaleString('es-AR')}).`);
+  }
+  const catTexto = String(b.categoria_id ?? '').trim();
+  const categoria = /^\d+$/.test(catTexto)
+    ? db.prepare('SELECT id FROM categorias_gasto WHERE id = ?').get(Number(catTexto)) : undefined;
+  if (!categoria) errores.push('Elegí una categoría de gasto válida.');
+  const errFecha = validarFecha(b.fecha, hoy);
+  if (errFecha) errores.push(errFecha);
+  return { errores, datos: { fecha: b.fecha, monto, categoria_id: categoria ? categoria.id : null, nota: String(b.nota ?? '').trim() } };
+}
+
+const SELECT_GASTO = `SELECT g.*, c.nombre AS categoria, c.tipo FROM gastos_generales g JOIN categorias_gasto c ON c.id = g.categoria_id`;
+
+function gastoParaApi(f) {
+  return {
+    id: f.id, fecha: f.fecha, monto: aPesos(f.monto), categoria_id: f.categoria_id, categoria: f.categoria, tipo: f.tipo, nota: f.nota,
+    creado_en: f.creado_en, actualizado_en: f.actualizado_en, corregido_en: f.corregido_en,
+    eliminado_en: f.eliminado_en, motivo_eliminacion: f.motivo_eliminacion,
+  };
+}
+const gastoPorId = id => {
+  const f = db.prepare(`${SELECT_GASTO} WHERE g.id = ?`).get(id);
+  return f ? gastoParaApi({ ...f }) : null;
+};
+
+router.get('/categorias', (req, res) => {
+  res.json(db.prepare('SELECT id, nombre, tipo FROM categorias_gasto ORDER BY id').all().map(c => ({ ...c })));
+});
+
+router.get('/gastos', (req, res) => {
+  const q = k => String(req.query[k] ?? '').trim();
+  const desde = q('desde'), hasta = q('hasta'), cat = q('categoria_id'), eliminados = q('eliminados');
+  const errores = [];
+  if (desde && !fechaValida(desde)) errores.push('La fecha "desde" es inválida: usá el formato AAAA-MM-DD.');
+  if (hasta && !fechaValida(hasta)) errores.push('La fecha "hasta" es inválida: usá el formato AAAA-MM-DD.');
+  if (!errores.length && desde && hasta && desde > hasta) errores.push('La fecha "desde" no puede ser posterior a "hasta".');
+  if (cat && !/^\d+$/.test(cat)) errores.push('Categoría inválida.');
+  if (eliminados && !['solo', 'todos'].includes(eliminados)) errores.push('Filtro de eliminados inválido.');
+  if (errores.length) return res.status(400).json({ errores });
+
+  const where = [], params = [];
+  if (desde) { where.push('g.fecha >= ?'); params.push(desde); }
+  if (hasta) { where.push('g.fecha <= ?'); params.push(hasta); }
+  if (cat) { where.push('g.categoria_id = ?'); params.push(Number(cat)); }
+  if (eliminados === '') where.push('g.eliminado_en IS NULL');
+  else if (eliminados === 'solo') where.push('g.eliminado_en IS NOT NULL');
+  const filas = db.prepare(`${SELECT_GASTO} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY g.fecha DESC, g.id DESC`).all(...params);
+  res.json(filas.map(f => gastoParaApi({ ...f })));
+});
+
+router.post('/gastos', (req, res) => {
+  const { errores, datos } = validarDatosGasto(req.body, ahoraLocal().fecha);
+  if (errores.length) return res.status(400).json({ errores });
+  const ahora = ahoraTexto();
+  const id = Number(db.prepare(`
+    INSERT INTO gastos_generales (fecha, monto, categoria_id, nota, creado_en, actualizado_en) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(datos.fecha, datos.monto, datos.categoria_id, datos.nota, ahora, ahora).lastInsertRowid);
+  res.status(201).json(gastoPorId(id));
+});
+
 function listarPuntosVenta(req, res) {
   res.json(db.prepare('SELECT id, nombre, activo FROM puntos_venta ORDER BY id').all().map(p => ({ ...p })));
 }
