@@ -223,7 +223,63 @@
         </section>
       </div>
       <div id="vista-resumen" hidden>
-        <section class="card"><h2>Resumen</h2><p class="vacio">Se habilita en un paso posterior.</p></section>
+        <section class="card">
+          <h2>Resumen</h2>
+          <form id="resumenForm" novalidate>
+            <div class="atajos" id="r_atajos">
+              <button type="button" class="secundario" data-preset="hoy">Hoy</button>
+              <button type="button" class="secundario" data-preset="semana">Esta semana</button>
+              <button type="button" class="secundario" data-preset="mes">Este mes</button>
+              <button type="button" class="secundario" data-preset="30dias">Últimos 30 días</button>
+            </div>
+            <div class="grid">
+              <div class="field"><label for="r_desde">Desde</label><input id="r_desde" type="date"></div>
+              <div class="field"><label for="r_hasta">Hasta</label><input id="r_hasta" type="date"></div>
+              <div class="field"><label for="r_agrupar">Ver</label>
+                <select id="r_agrupar">
+                  <option value="total">Total del rango</option>
+                  <option value="dia">Día por día</option>
+                  <option value="semana">Semana por semana</option>
+                  <option value="mes">Mes por mes</option>
+                </select></div>
+            </div>
+            <div id="resumenMsg"></div>
+          </form>
+        </section>
+
+        <div id="resumenResultado" hidden>
+          <div class="stats" id="r_destacados"></div>
+
+          <section class="card">
+            <h2>La cuenta completa</h2>
+            <div class="calculo"><dl id="r_cuenta"></dl></div>
+            <div class="aviso" id="r_aviso_stock" hidden>Las compras de stock (mercadería y envases) se descuentan enteras en el período de su fecha. Un mes con una compra grande puede verse flojo aunque se haya vendido bien: la cifra más confiable es el total de toda la temporada.</div>
+          </section>
+
+          <section class="card" id="r_periodos_card" hidden>
+            <h2 id="r_periodos_titulo"></h2>
+            <div class="tabla-wrap"><table class="tarjetas">
+              <thead><tr><th>Período</th><th class="num">Ventas totales</th><th class="num">Gastos puntos de venta</th><th class="num">Utilidad relativa</th><th class="num">Gastos generales</th><th class="num">Resultado</th></tr></thead>
+              <tbody id="r_periodos"></tbody>
+            </table></div>
+          </section>
+
+          <section class="card">
+            <h2>Por punto de venta</h2>
+            <div class="tabla-wrap"><table class="tarjetas">
+              <thead><tr><th>Punto de venta</th><th class="num">Bowls (ef. + transf.)</th><th class="num">Ventas</th><th class="num">Gastos</th><th class="num">Utilidad</th><th class="num">Días trabajados</th><th class="num">Días no trabajados</th><th class="num">Diferencia de caja</th></tr></thead>
+              <tbody id="r_puntos"></tbody>
+            </table></div>
+          </section>
+
+          <section class="card">
+            <h2>Avisos</h2>
+            <p class="hint">Son solo informativos: el resultado se calcula igual con lo que esté cargado. Se cuentan desde el primer cierre de cada punto de venta hasta ayer; después de un fin de temporada no se avisa nada.</p>
+            <div id="r_avisos"></div>
+            <h3 class="subtitulo">Días no trabajados</h3>
+            <div id="r_no_trabajados"></div>
+          </section>
+        </div>
       </div>
     </div>
     <section class="card" id="tab-config" hidden>

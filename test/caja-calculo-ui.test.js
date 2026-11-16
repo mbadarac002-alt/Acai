@@ -82,3 +82,41 @@ test('las pestañas principales del panel no capturan los botones de las vistas 
   assert.ok(!/querySelectorAll\('\.tabs button'\)/.test(html), "usar querySelectorAll('.tabs button[data-tab]')");
   assert.match(html, /querySelectorAll\('\.tabs button\[data-tab\]'\)/);
 });
+
+// ---- T13 · fechas, etiquetas y atajos de rango del resumen ----
+const reglas = require('../src/reglas');
+
+test('sumarDias y lunesDe de la pantalla dan lo mismo que los del servidor', () => {
+  let f = '2025-12-20';
+  for (let i = 0; i < 80; i++) {
+    assert.equal(ui.sumarDias(f, 1), reglas.sumarDias(f, 1), f);
+    assert.equal(ui.sumarDias(f, -35), reglas.sumarDias(f, -35), f);
+    assert.equal(ui.lunesDe(f), srv.lunesDe(f), f);
+    f = reglas.sumarDias(f, 1);
+  }
+});
+
+test('día corto: día de la semana y fecha con año de dos cifras', () => {
+  assert.equal(ui.diaCorto('2025-11-12'), 'mié 12/11/25');
+  assert.equal(ui.diaCorto('2026-01-03'), 'sáb 03/01/26');
+});
+
+test('etiqueta de un período: día, semana (con sus límites reales), mes y total', () => {
+  assert.equal(ui.etiquetaPeriodo({ periodo: '2025-11-12', desde: '2025-11-12', hasta: '2025-11-12' }, 'dia'), 'mié 12/11/25');
+  assert.equal(ui.etiquetaPeriodo({ periodo: '2025-W46', desde: '2025-11-10', hasta: '2025-11-16' }, 'semana'), 'Sem. 46 · 10/11 al 16/11');
+  assert.equal(ui.etiquetaPeriodo({ periodo: '2025-W49', desde: '2025-12-01', hasta: '2025-12-03' }, 'semana'), 'Sem. 49 · 01/12 al 03/12', 'semana parcial');
+  assert.equal(ui.etiquetaPeriodo({ periodo: '2025-W47', desde: '2025-11-17', hasta: '2025-11-17' }, 'semana'), 'Sem. 47 · 17/11');
+  assert.equal(ui.etiquetaPeriodo({ periodo: '2025-11', desde: '2025-11-10', hasta: '2025-11-30' }, 'mes'), 'noviembre 2025');
+  assert.equal(ui.etiquetaPeriodo({ periodo: '2026-03', desde: '2026-03-01', hasta: '2026-03-31' }, 'mes'), 'marzo 2026');
+  assert.equal(ui.etiquetaPeriodo({ periodo: 'total', desde: '2025-11-01', hasta: '2025-11-30' }, 'total'), 'Total del rango');
+});
+
+test('atajos de rango: hoy, esta semana (desde el lunes), este mes y últimos 30 días', () => {
+  assert.deepEqual(ui.rangoPreset('hoy', '2025-11-12'), { desde: '2025-11-12', hasta: '2025-11-12' });
+  assert.deepEqual(ui.rangoPreset('semana', '2025-11-12'), { desde: '2025-11-10', hasta: '2025-11-12' });
+  assert.deepEqual(ui.rangoPreset('semana', '2025-11-10'), { desde: '2025-11-10', hasta: '2025-11-10' }, 'hoy es lunes');
+  assert.deepEqual(ui.rangoPreset('semana', '2025-11-16'), { desde: '2025-11-10', hasta: '2025-11-16' }, 'hoy es domingo');
+  assert.deepEqual(ui.rangoPreset('mes', '2025-11-12'), { desde: '2025-11-01', hasta: '2025-11-12' });
+  assert.deepEqual(ui.rangoPreset('30dias', '2025-11-12'), { desde: '2025-10-14', hasta: '2025-11-12' });
+  assert.throws(() => ui.rangoPreset('otro', '2025-11-12'));
+});

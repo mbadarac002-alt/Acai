@@ -1,4 +1,4 @@
-// Pestaña "Caja" del panel (spec 9.6). Por ahora: cierre diario y gastos generales. Los totales en vivo son solo una vista previa
+// Pestaña "Caja" del panel (spec 9.6). Cierre diario, gastos generales y resumen. Los totales en vivo son solo una vista previa
 // (CajaCalculo); quien valida y guarda es el servidor, y sus mensajes de error se muestran tal cual.
 window.Caja = (function () {
   const C = window.CajaCalculo;
@@ -358,6 +358,128 @@ window.Caja = (function () {
       + (t.eliminados ? ` · ${t.eliminados} eliminado(s) no incluido(s) en los totales` : '');
   }
 
+  // ---- Resumen ----
+  const AGRUPA_TITULO = { dia: 'Día por día', semana: 'Semana por semana', mes: 'Mes por mes' };
+
+  function celda(texto, clase) { const x = document.createElement('td'); x.textContent = texto; if (clase) x.className = clase; return x; }
+
+  function filaCuenta(dl, etiqueta, valor, { clase, fuerte, sub, detalle } = {}) {
+    const dt = document.createElement('dt'), dd = document.createElement('dd');
+    dt.textContent = etiqueta;
+    if (detalle) { const h = document.createElement('span'); h.className = 'hint'; h.textContent = ' ' + detalle; dt.appendChild(h); }
+    dd.textContent = valor;
+    if (fuerte) { dt.classList.add('fuerte'); dd.classList.add('fuerte', 'grande'); }
+    if (sub) { dt.classList.add('sub'); dd.classList.add('sub'); }
+    if (clase) dd.classList.add(clase);
+    dl.append(dt, dd);
+  }
+  const claseResultado = n => (n < 0 ? 'dif-falta' : n > 0 ? 'dif-ok' : '');
+
+  function pintarDestacados(p) {
+    const box = el('r_destacados'); box.innerHTML = '';
+    [['Ventas totales', p.ventas_totales, ''], ['Utilidad relativa', p.utilidad_relativa, claseResultado(p.utilidad_relativa)],
+      ['Resultado del período', p.resultado, claseResultado(p.resultado)]].forEach(([titulo, valor, clase]) => {
+      const s = document.createElement('div'); s.className = 'stat';
+      const v = document.createElement('div'); v.className = 'v ' + clase; v.textContent = pesosConSigno(valor);
+      const l = document.createElement('div'); l.className = 'l'; l.textContent = titulo;
+      s.append(v, l); box.appendChild(s);
+    });
+  }
+
+  function pintarCuenta(p) {
+    const dl = el('r_cuenta'); dl.innerHTML = '';
+    const m = p.mayorista, mi = p.minorista, g = p.gastos_generales;
+    filaCuenta(dl, 'Ventas mayoristas', d.pesos(m.total), { detalle: `${m.pedidos} pedido(s): ${d.pesos(m.efectivo)} efectivo · ${d.pesos(m.transferencia)} transf.` });
+    filaCuenta(dl, 'Ventas minoristas', d.pesos(mi.ventas_total), { detalle: `${mi.bowls_efectivo + mi.bowls_transferencia} bowls: ${mi.bowls_efectivo} en efectivo · ${mi.bowls_transferencia} por transf.` });
+    filaCuenta(dl, 'Ventas totales', d.pesos(p.ventas_totales), { fuerte: true });
+    filaCuenta(dl, '− Gastos de los puntos de venta', pesosConSigno(-p.gastos_puntos_venta));
+    filaCuenta(dl, 'Utilidad relativa', pesosConSigno(p.utilidad_relativa), { fuerte: true, clase: claseResultado(p.utilidad_relativa), detalle: 'sin gastos generales' });
+    filaCuenta(dl, '− Gastos generales', pesosConSigno(-g.total), { detalle: g.total ? `compras de stock ${d.pesos(g.stock)} · gastos corrientes ${d.pesos(g.corrientes)}` : '' });
+    g.por_categoria.forEach(c => filaCuenta(dl, c.categoria + (c.tipo === 'stock' ? ' (stock)' : ''), d.pesos(c.monto), { sub: true }));
+    filaCuenta(dl, 'Resultado del período', pesosConSigno(p.resultado), { fuerte: true, clase: claseResultado(p.resultado) });
+    el('r_aviso_stock').hidden = !(g.stock > 0);
+  }
+
+  function pintarPeriodos(res, agrupar) {
+    const card = el('r_periodos_card');
+    card.hidden = agrupar === 'total';
+    if (agrupar === 'total') return;
+    el('r_periodos_titulo').textContent = AGRUPA_TITULO[agrupar];
+    const tb = el('r_periodos'); tb.innerHTML = '';
+    res.periodos.forEach(p => {
+      const tr = document.createElement('tr');
+      const vacio = p.ventas_totales === 0 && p.gastos_puntos_venta === 0 && p.gastos_generales.total === 0;
+      if (vacio) tr.className = 'sin-mov';
+      const eti = tdl('Período', C.etiquetaPeriodo(p, agrupar));
+      if (vacio) { const s = document.createElement('span'); s.className = 'solo-celular nota'; s.textContent = ' · sin movimientos'; eti.appendChild(s); }
+      tr.appendChild(eti);
+      const num = (et, v, extra) => tdl(et, vacio ? '—' : pesosConSigno(v), 'num' + (vacio ? ' vacio-celda' : '') + (extra ? ' ' + extra : ''));
+      tr.append(num('Ventas totales', p.ventas_totales), num('Gastos puntos de venta', p.gastos_puntos_venta), num('Utilidad relativa', p.utilidad_relativa),
+        num('Gastos generales', p.gastos_generales.total), num('Resultado', p.resultado, claseResultado(p.resultado)));
+      tb.appendChild(tr);
+    });
+  }
+
+  function pintarPuntos(p) {
+    const tb = el('r_puntos'); tb.innerHTML = '';
+    p.minorista.puntos.forEach(x => {
+      const tr = document.createElement('tr');
+      tr.append(tdl('Punto de venta', x.nombre), tdl('Bowls (ef. + transf.)', `${x.bowls_efectivo} + ${x.bowls_transferencia}`, 'num'),
+        tdl('Ventas', d.pesos(x.ventas_total), 'num'), tdl('Gastos', d.pesos(x.gastos), 'num'), tdl('Utilidad', pesosConSigno(x.utilidad_relativa), 'num'),
+        tdl('Días trabajados', x.dias_trabajados, 'num'), tdl('Días no trabajados', x.dias_no_trabajados, 'num'),
+        tdl('Diferencia de caja', pesosConSigno(x.diferencia_caja), 'num ' + C.claseDiferencia(C.aCentavos(x.diferencia_caja))));
+      tb.appendChild(tr);
+    });
+  }
+
+  function pintarAvisos(res) {
+    const cont = el('r_avisos'); cont.innerHTML = '';
+    if (!res.avisos.length) { const p = document.createElement('p'); p.className = 'vacio'; p.textContent = 'No hay días sin cierre en este rango.'; cont.appendChild(p); }
+    res.avisos.forEach(a => {
+      const bloque = document.createElement('div'); bloque.className = 'aviso-pv';
+      const titulo = document.createElement('div');
+      const b = document.createElement('strong'); b.textContent = a.nombre;
+      titulo.append(b, `: ${a.dias_sin_cierre} día(s) sin cierre`);
+      const chips = document.createElement('div');
+      a.fechas.forEach(f => { const s = document.createElement('span'); s.className = 'chip'; s.textContent = C.diaCorto(f); chips.appendChild(s); });
+      if (a.fechas.length > 8) {
+        const det = document.createElement('details'); const sum = document.createElement('summary'); sum.textContent = 'Ver los días';
+        det.append(sum, chips); bloque.append(titulo, det);
+      } else bloque.append(titulo, chips);
+      cont.appendChild(bloque);
+    });
+    const nt = el('r_no_trabajados'); nt.innerHTML = '';
+    if (!res.no_trabajados.length) { const p = document.createElement('p'); p.className = 'vacio'; p.textContent = 'No hay días no trabajados en este rango.'; nt.appendChild(p); }
+    res.no_trabajados.forEach(x => {
+      const li = document.createElement('div'); li.className = 'linea';
+      li.textContent = `${C.diaCorto(x.fecha)} · ${x.nombre} · ${x.tipo === 'fin_temporada' ? 'Fin de temporada' : 'No trabajó'}${x.motivo && x.motivo !== 'Fin de temporada' ? ': ' + x.motivo : ''}`;
+      nt.appendChild(li);
+    });
+  }
+
+  async function cargarResumen() {
+    const msg = el('resumenMsg'); msg.innerHTML = '';
+    const desde = el('r_desde').value, hasta = el('r_hasta').value, agrupar = el('r_agrupar').value;
+    if (!desde || !hasta) { el('resumenResultado').hidden = true; mensaje(msg, 'error', 'Elegí las fechas "desde" y "hasta".'); return; }
+    const url = a => `/caja/resumen?desde=${desde}&hasta=${hasta}&agrupar=${a}`;
+    try {
+      const [total, agrupado] = await Promise.all([d.api(url('total')), agrupar === 'total' ? null : d.api(url(agrupar))]);
+      el('resumenResultado').hidden = false;
+      const p = total.periodos[0];
+      pintarDestacados(p); pintarCuenta(p); pintarPuntos(p); pintarAvisos(total);
+      pintarPeriodos(agrupado, agrupar);
+    } catch (e) {
+      el('resumenResultado').hidden = true;
+      mensaje(msg, 'error', erroresDe(e));
+    }
+  }
+
+  function aplicarAtajo(nombre) {
+    const r = C.rangoPreset(nombre, fechaLocal());
+    el('r_desde').value = r.desde; el('r_hasta').value = r.hasta;
+    cargarResumen();
+  }
+
   // ---- Datos base y arranque ----
   function llenarSelect(select, opciones, primera) {
     const actual = select.value;
@@ -384,6 +506,7 @@ window.Caja = (function () {
     document.querySelectorAll('#cajaVistas button').forEach(b => b.classList.toggle('activo', b.dataset.vista === vista));
     ['cierre', 'gastos', 'resumen'].forEach(v => { el('vista-' + v).hidden = v !== vista; });
     if (vista === 'gastos') cargarGastos();
+    if (vista === 'resumen') { if (!el('r_desde').value) aplicarAtajo('mes'); else cargarResumen(); }
   }
 
   async function mostrar() {
@@ -408,6 +531,9 @@ window.Caja = (function () {
     el('gastoCancelar').addEventListener('click', cancelarCorreccionGasto);
     el('gastosFiltros').addEventListener('input', () => { clearTimeout(temporizadorGastos); temporizadorGastos = setTimeout(cargarGastos, 250); });
     el('gastosFiltros').addEventListener('submit', e => e.preventDefault());
+    el('resumenForm').addEventListener('submit', e => e.preventDefault());
+    el('resumenForm').addEventListener('change', cargarResumen);
+    document.querySelectorAll('#r_atajos button').forEach(b => b.addEventListener('click', () => aplicarAtajo(b.dataset.preset)));
   }
 
   return { iniciar, mostrar };
