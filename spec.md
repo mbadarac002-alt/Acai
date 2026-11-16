@@ -392,7 +392,7 @@ Montos en pesos (número, hasta 2 decimales); cantidades de bowls, enteros; fech
 }
 ```
 
-`diferencia_caja` es la suma de las diferencias de los cierres del período (informativa; no entra en el resultado). Fechas inválidas, `desde > hasta`, rango > 366 días o `agrupar` inválido → 400.
+Con `agrupar=dia`, `semana` o `mes` se devuelve **un período por cada día, semana o mes del rango**, también los que no tuvieron movimientos (en cero); con `total`, un único período. `diferencia_caja` es la suma de las diferencias de los cierres del período (informativa; no entra en el resultado). Fechas inválidas, `desde > hasta`, rango > 366 días o `agrupar` inválido → 400.
 
 ### 9.6 Interfaz (panel `/admin`)
 
@@ -444,7 +444,7 @@ En los ejemplos, precio del bowl: **$4.000 en efectivo** y **$4.500 por transfer
 **Ventas totales, utilidad relativa y resultado (RN-C6)**
 - **Dado** mayorista 5.000, minorista con ventas 12.000 y gastos 2.000, y gastos generales 4.000, **entonces** `ventas_totales = 17000`, `utilidad_relativa = 17000 − 2000 = 15000` y `resultado = 15000 − 4000 = 11000`.
 - **Dado** un gasto general de $4.000 fechado en una semana sin ventas, **cuando** se pide el resumen de esa semana, **entonces** `utilidad_relativa = 0` y `resultado = −4000` (los gastos generales se descuentan en el período de su fecha).
-- **Dado** `agrupar=dia` sobre una semana, **entonces** hay un período por cada día con actividad y la suma de los resultados diarios es igual al resultado de `agrupar=total`; lo mismo vale para ventas totales y utilidad relativa.
+- **Dado** `agrupar=dia` sobre una semana, **entonces** hay un período por cada día de la semana, **incluidos los días sin movimientos (en cero)**, y la suma de los resultados diarios es igual al resultado de `agrupar=total`; lo mismo vale para ventas totales y utilidad relativa.
 - **Dado** `agrupar=semana`, **entonces** las semanas van de lunes a domingo; una semana parcial usa solo los días dentro del rango.
 - **Dado** un rango inválido (`desde > hasta`, mayor a 366 días, fechas mal formadas), **entonces** responde 400.
 

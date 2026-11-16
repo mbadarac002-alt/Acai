@@ -459,14 +459,6 @@ function resumenDePeriodo({ periodo, desde, hasta }) {
   };
 }
 
-/** Hay actividad en un período si tiene algún pedido cobrado, algún cierre activo (de cualquier tipo) o algún gasto general. */
-function hayActividad({ desde, hasta }) {
-  const hay = sql => db.prepare(sql).get(desde, hasta) !== undefined;
-  return hay("SELECT 1 FROM pedidos WHERE estado = 'cobrado' AND eliminado_en IS NULL AND substr(fecha_cobro, 1, 10) BETWEEN ? AND ? LIMIT 1")
-    || hay('SELECT 1 FROM cierres_caja WHERE eliminado_en IS NULL AND fecha BETWEEN ? AND ? LIMIT 1')
-    || hay('SELECT 1 FROM gastos_generales WHERE eliminado_en IS NULL AND fecha BETWEEN ? AND ? LIMIT 1');
-}
-
 router.get('/resumen', (req, res) => {
   const q = k => String(req.query[k] ?? '').trim();
   const desde = q('desde'), hasta = q('hasta'), agrupar = q('agrupar') || 'total';
@@ -475,10 +467,8 @@ router.get('/resumen', (req, res) => {
   if (errRango) errores.push(errRango);
   if (!AGRUPACIONES.includes(agrupar)) errores.push(`La agrupación debe ser: ${AGRUPACIONES.join(', ')}.`);
   if (errores.length) return res.status(400).json({ errores });
-  // Con agrupar=total siempre hay un período; con día, semana o mes solo aparecen los períodos con actividad.
-  const periodos = periodosDelRango(desde, hasta, agrupar)
-    .filter(per => agrupar === 'total' || hayActividad(per))
-    .map(resumenDePeriodo);
+  // Un período por cada día, semana o mes del rango (los que no tuvieron movimientos salen en cero).
+  const periodos = periodosDelRango(desde, hasta, agrupar).map(resumenDePeriodo);
   res.json({ desde, hasta, agrupar, periodos });
 });
 
