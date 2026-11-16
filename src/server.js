@@ -2,6 +2,7 @@ const path = require('node:path');
 const express = require('express');
 const { db, getConfig, setConfig } = require('./db');
 const { ahoraLocal, calcularFechaEntrega, calcularPrecio, mesDe, nombreDia } = require('./reglas');
+const caja = require('./caja');
 const { enviarMail } = require('./mailer');
 const { enviarTelegram, normalizarChatId, hayToken } = require('./telegram');
 
@@ -174,7 +175,9 @@ app.get('/api/mis-pedidos', (req, res) => {
 const admin = express.Router();
 admin.use(requireAdmin);
 
-admin.get('/config', (req, res) => res.json(getConfig()));
+// La configuración incluye los precios del bowl vigentes hoy (módulo de caja).
+const configCompleta = () => ({ ...getConfig(), ...caja.preciosBowlParaConfig() });
+admin.get('/config', (req, res) => res.json(configCompleta()));
 
 admin.put('/config', (req, res) => {
   const b = req.body;
@@ -197,8 +200,12 @@ admin.put('/config', (req, res) => {
   if ((canal === 'mail' || canal === 'ambos') && !email) errores.push('Para recibir avisos por mail hay que cargar el email del propietario.');
   if ((canal === 'telegram' || canal === 'ambos') && !chatId) errores.push('Para recibir avisos por Telegram hay que cargar el ID de chat del propietario.');
   if ((canal === 'telegram' || canal === 'ambos') && !hayToken()) errores.push('Falta configurar el bot de Telegram en el servidor (variable TELEGRAM_BOT_TOKEN).');
+  // Precios del bowl: opcionales; si vienen, se agregan al historial con su fecha de vigencia.
+  const precios = caja.validarPreciosBowl(b);
+  errores.push(...precios.errores);
   if (errores.length) return res.status(400).json({ errores });
 
+  if (precios.cambio) caja.guardarPrecioBowl(precios.cambio);
   setConfig({
     precio_balde: Number(b.precio_balde),
     umbral_baldes: Number(b.umbral_baldes),
@@ -208,7 +215,7 @@ admin.put('/config', (req, res) => {
     telegram_chat_id: chatId || '',
     canal_notificacion: canal,
   });
-  res.json(getConfig());
+  res.json(configCompleta());
 });
 
 admin.get('/pedidos', (req, res) => {
@@ -345,6 +352,7 @@ admin.get('/clientes', (req, res) => {
   res.json(rows);
 });
 
+admin.use('/caja', caja.router);
 app.use('/api/admin', admin);
 
 const PORT = Number(process.env.PORT || 3000);

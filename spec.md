@@ -351,7 +351,7 @@ Montos en pesos (número, hasta 2 decimales); cantidades de bowls, enteros; fech
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET / PUT | `/api/admin/config` | **Existente.** El GET agrega `precio_bowl_efectivo` y `precio_bowl_transferencia` (los vigentes hoy, o `null` si no hay) y `precio_bowl_desde`. En el PUT esos campos son opcionales (para no romper clientes actuales): si vienen **los dos precios** (> 0) se agrega un cambio al historial con `precio_bowl_desde` (por defecto, hoy); si viene solo uno, 400; si no viene ninguno, el historial no se toca |
+| GET / PUT | `/api/admin/config` | **Existente.** El GET agrega `precio_bowl_efectivo`, `precio_bowl_transferencia` (los vigentes hoy, o `null` si no hay) y `precio_bowl_vigente_desde`. En el PUT esos campos son opcionales (para no romper clientes actuales; vacío cuenta como ausente): si vienen **los dos precios** (> 0) se agrega un cambio al historial con `precio_bowl_desde` (por defecto, hoy; puede ser futura); si viene solo uno, 400; si no viene ninguno, el historial no se toca. Si los precios enviados ya son los vigentes en esa fecha, no se agrega nada (así guardar otra configuración no ensucia el historial) |
 | GET | `/api/admin/caja/precios` | Historial de precios del bowl, del más reciente al más antiguo |
 | GET | `/api/admin/puntos-venta` | Lista de puntos de venta |
 | GET | `/api/admin/caja/categorias` | Categorías de gasto con su tipo |

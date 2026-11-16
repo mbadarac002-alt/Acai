@@ -96,6 +96,24 @@
           <div class="field"><label for="precio_balde">Precio por balde ($)</label><input id="precio_balde" name="precio_balde" type="number" min="0" step="0.01"></div>
           <div class="field"><label for="hora_corte">Hora de corte (martes y viernes) <span class="hint">un pedido hecho un martes o viernes antes de esta hora se entrega ese mismo día; si es después, el próximo día de entrega</span></label><input id="hora_corte" name="hora_corte" type="time"></div>
         </div>
+        <h2 style="margin-top:10px">Precio del bowl (venta en la playa)</h2>
+        <div class="grid">
+          <div class="field"><label for="precio_bowl_efectivo">Precio en efectivo ($)</label><input id="precio_bowl_efectivo" name="precio_bowl_efectivo" type="number" min="0" step="0.01"></div>
+          <div class="field"><label for="precio_bowl_transferencia">Precio por transferencia ($)</label><input id="precio_bowl_transferencia" name="precio_bowl_transferencia" type="number" min="0" step="0.01"></div>
+          <div class="field"><label for="precio_bowl_desde">Rige desde <span class="hint">vacío = desde hoy</span></label><input id="precio_bowl_desde" name="precio_bowl_desde" type="date"></div>
+        </div>
+        <p class="hint" id="bowlVigente"></p>
+        <p class="hint">Cada cierre de caja usa el precio que regía el día al que corresponde, aunque se cargue después. Para cargar días anteriores al primer precio, poné ese primer precio con una fecha de vigencia anterior. Si cambiás los precios, los cierres ya cargados no se modifican.</p>
+        <details class="hint" style="margin:6px 0 14px">
+          <summary><strong>Historial de precios del bowl</strong></summary>
+          <div class="tabla-wrap">
+            <table>
+              <thead><tr><th>Rige desde</th><th class="num">Efectivo</th><th class="num">Transferencia</th></tr></thead>
+              <tbody id="bowlHistorial"></tbody>
+            </table>
+          </div>
+          <p class="vacio" id="bowlHistorialVacio" hidden>Todavía no hay precios cargados.</p>
+        </details>
         <h2 style="margin-top:10px">Notificaciones de nuevos pedidos</h2>
         <div class="grid">
           <div class="field"><label for="canal_notificacion">Quiero recibir los avisos por</label>
@@ -308,7 +326,19 @@ async function cargarClientes() {
 
 async function cargarConfig() {
   const c = await api('/config');
-  for (const [k, v] of Object.entries(c)) { const el = document.getElementById(k); if (el) el.value = v; }
+  for (const [k, v] of Object.entries(c)) { const el = document.getElementById(k); if (el) el.value = v ?? ''; }
+  $('#bowlVigente').textContent = c.precio_bowl_efectivo == null
+    ? 'Todavía no hay precios del bowl cargados: hacen falta para poder cargar cierres de caja.'
+    : `Hoy rigen: ${pesos(c.precio_bowl_efectivo)} en efectivo y ${pesos(c.precio_bowl_transferencia)} por transferencia (desde el ${ddmm(c.precio_bowl_vigente_desde)}).`;
+  $('#precio_bowl_desde').value = ''; // la fecha es siempre de un cambio nuevo
+  const precios = await api('/caja/precios');
+  const tb = $('#bowlHistorial'); tb.innerHTML = '';
+  $('#bowlHistorialVacio').hidden = precios.length > 0;
+  precios.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.append(td(ddmm(p.vigente_desde)), td(pesos(p.precio_efectivo), 'num'), td(pesos(p.precio_transferencia), 'num'));
+    tb.appendChild(tr);
+  });
 }
 
 $('#configForm').addEventListener('submit', async e => {
@@ -319,7 +349,7 @@ $('#configForm').addEventListener('submit', async e => {
   try {
     await api('/config', { method: 'PUT', body: JSON.stringify(data) });
     box.className = 'msg ok'; box.textContent = 'Configuración guardada.';
-    cargarClientes();
+    cargarClientes(); cargarConfig();
   } catch (errs) {
     box.className = 'msg error'; box.textContent = errs.join(' ');
   }
