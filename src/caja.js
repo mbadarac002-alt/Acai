@@ -2,7 +2,7 @@
 const express = require('express');
 const { db } = require('./db');
 const { ahoraLocal } = require('./reglas');
-const { aCentavos, aPesos, precioVigente, calcularCierre, calcularResultado, fechaValida, validarFecha, validarRango, periodosDelRango, AGRUPACIONES } = require('./caja-reglas');
+const { aCentavos, aPesos, precioVigente, calcularCierre, calcularResultado, fechaValida, validarFecha, validarRango, periodosDelRango, diasSinCierre, AGRUPACIONES } = require('./caja-reglas');
 
 // ---------- Precios del bowl (RN-C2) ----------
 
@@ -459,6 +459,28 @@ function resumenDePeriodo({ periodo, desde, hasta }) {
   };
 }
 
+/**
+ * Informativo (RN-C7): por punto de venta, los días del rango sin cierre (no bloquea nada) y, aparte, los días
+ * no trabajados y fines de temporada con su motivo. Los avisos se calculan con todos los cierres del punto de venta,
+ * porque dependen del primer cierre y de los fines de temporada anteriores al rango.
+ */
+function avisosDelRango(desde, hasta) {
+  const hoy = ahoraLocal().fecha;
+  const avisos = [];
+  for (const pv of db.prepare('SELECT id, nombre FROM puntos_venta WHERE activo = 1 ORDER BY id').all()) {
+    const cierres = db.prepare('SELECT fecha, tipo FROM cierres_caja WHERE punto_venta_id = ? AND eliminado_en IS NULL').all(pv.id).map(c => ({ ...c }));
+    const fechas = diasSinCierre({ cierres, desde, hasta, hoy });
+    if (fechas.length) avisos.push({ punto_venta_id: pv.id, nombre: pv.nombre, dias_sin_cierre: fechas.length, fechas });
+  }
+  const no_trabajados = db.prepare(`
+    SELECT c.punto_venta_id, p.nombre, c.fecha, c.tipo, c.motivo
+    FROM cierres_caja c JOIN puntos_venta p ON p.id = c.punto_venta_id
+    WHERE c.eliminado_en IS NULL AND c.tipo <> 'trabajado' AND p.activo = 1 AND c.fecha BETWEEN ? AND ?
+    ORDER BY c.fecha, c.punto_venta_id
+  `).all(desde, hasta).map(f => ({ ...f }));
+  return { avisos, no_trabajados };
+}
+
 router.get('/resumen', (req, res) => {
   const q = k => String(req.query[k] ?? '').trim();
   const desde = q('desde'), hasta = q('hasta'), agrupar = q('agrupar') || 'total';
@@ -469,7 +491,7 @@ router.get('/resumen', (req, res) => {
   if (errores.length) return res.status(400).json({ errores });
   // Un período por cada día, semana o mes del rango (los que no tuvieron movimientos salen en cero).
   const periodos = periodosDelRango(desde, hasta, agrupar).map(resumenDePeriodo);
-  res.json({ desde, hasta, agrupar, periodos });
+  res.json({ desde, hasta, agrupar, periodos, ...avisosDelRango(desde, hasta) });
 });
 
 function listarPuntosVenta(req, res) {
