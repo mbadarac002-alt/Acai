@@ -234,6 +234,62 @@ router.post('/cierres', (req, res) => {
   res.status(201).json(cierrePorId(id));
 });
 
+const cierreActivo = id => (/^\d+$/.test(String(id)) ? db.prepare('SELECT * FROM cierres_caja WHERE id = ? AND eliminado_en IS NULL').get(Number(id)) : undefined);
+const MSG_CIERRE_NO_ENCONTRADO = 'No se encontró el cierre. Puede que ya haya sido eliminado: actualizá el listado.';
+
+router.put('/cierres/:id', (req, res) => {
+  const actual = cierreActivo(req.params.id);
+  if (!actual) return res.status(404).json({ errores: [MSG_CIERRE_NO_ENCONTRADO] });
+
+  const { errores, datos } = validarDatosCierre(req.body, ahoraLocal().fecha);
+  if (errores.length) return res.status(400).json({ errores });
+
+  const pv = db.prepare('SELECT id FROM puntos_venta WHERE id = ? AND activo = 1').get(datos.punto_venta_id);
+  if (!pv) return res.status(404).json({ errores: ['No se encontró el punto de venta, o está inactivo.'] });
+  const otro = db.prepare('SELECT id FROM cierres_caja WHERE punto_venta_id = ? AND fecha = ? AND eliminado_en IS NULL AND id <> ?').get(datos.punto_venta_id, datos.fecha, actual.id);
+  if (otro) return res.status(409).json({ errores: [MSG_DUPLICADO] });
+
+  // Se conservan los precios que el cierre ya tenía, salvo que cambie la fecha o que antes no tuviera (no trabajado).
+  let precio = null;
+  if (datos.tipo === 'trabajado') {
+    if (actual.precio_bowl_efectivo !== null && datos.fecha === actual.fecha) {
+      precio = { precio_efectivo: actual.precio_bowl_efectivo, precio_transferencia: actual.precio_bowl_transferencia };
+    } else {
+      precio = precioVigente(historialPreciosCentavos(), datos.fecha);
+      if (!precio) return res.status(409).json({ errores: [MSG_SIN_PRECIO] });
+    }
+  }
+  const armado = armarFilaCierre(datos, precio);
+  if (armado.errores.length) return res.status(400).json({ errores: armado.errores });
+
+  const f = armado.fila, ahora = ahoraTexto();
+  try {
+    db.prepare(`
+      UPDATE cierres_caja SET punto_venta_id = ?, fecha = ?, tipo = ?, motivo = ?, fondo_inicial = ?, bowls_efectivo = ?,
+        bowls_transferencia = ?, precio_bowl_efectivo = ?, precio_bowl_transferencia = ?, ingresos_efectivo = ?,
+        ingresos_transferencia = ?, gastos = ?, nota_gastos = ?, efectivo_esperado = ?, efectivo_contado = ?, diferencia = ?,
+        nota_diferencia = ?, actualizado_en = ?, corregido_en = ?
+      WHERE id = ?
+    `).run(datos.punto_venta_id, datos.fecha, f.tipo, f.motivo, f.fondo_inicial, f.bowls_efectivo, f.bowls_transferencia,
+      f.precio_bowl_efectivo, f.precio_bowl_transferencia, f.ingresos_efectivo, f.ingresos_transferencia, f.gastos, f.nota_gastos,
+      f.efectivo_esperado, f.efectivo_contado, f.diferencia, f.nota_diferencia, ahora, ahora, actual.id);
+  } catch (e) {
+    if (/UNIQUE/.test(String(e.message))) return res.status(409).json({ errores: [MSG_DUPLICADO] });
+    throw e;
+  }
+  res.json(cierrePorId(actual.id));
+});
+
+router.delete('/cierres/:id', (req, res) => {
+  const actual = cierreActivo(req.params.id);
+  if (!actual) return res.status(404).json({ errores: [MSG_CIERRE_NO_ENCONTRADO] });
+  const motivo = String(req.body?.motivo ?? '').trim();
+  if (!motivo) return res.status(400).json({ errores: ['Indicá el motivo por el que se elimina el cierre.'] });
+  db.prepare('UPDATE cierres_caja SET eliminado_en = ?, motivo_eliminacion = ?, actualizado_en = ? WHERE id = ?')
+    .run(ahoraTexto(), motivo, ahoraTexto(), actual.id);
+  res.json(cierrePorId(actual.id));
+});
+
 function listarPuntosVenta(req, res) {
   res.json(db.prepare('SELECT id, nombre, activo FROM puntos_venta ORDER BY id').all().map(p => ({ ...p })));
 }
