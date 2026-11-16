@@ -1,4 +1,4 @@
-// Pestaña "Caja" del panel (spec 9.6). Por ahora: cierre diario. Los totales en vivo son solo una vista previa
+// Pestaña "Caja" del panel (spec 9.6). Por ahora: cierre diario y gastos generales. Los totales en vivo son solo una vista previa
 // (CajaCalculo); quien valida y guarda es el servidor, y sus mensajes de error se muestran tal cual.
 window.Caja = (function () {
   const C = window.CajaCalculo;
@@ -6,7 +6,9 @@ window.Caja = (function () {
   let puntos = [];         // puntos de venta
   let precios = [];        // historial de precios del bowl (en pesos), del más reciente al más antiguo
   let editando = null;     // cierre que se está corrigiendo (null = alta)
-  let temporizador;
+  let categorias = [];     // categorías de gasto general
+  let editandoGasto = null; // gasto que se está corrigiendo (null = alta)
+  let temporizador, temporizadorGastos;
 
   const el = id => document.getElementById(id);
   const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
@@ -256,6 +258,106 @@ window.Caja = (function () {
     filas.forEach(c => tb.appendChild(filaCierre(c)));
   }
 
+  // ---- Gastos generales ----
+  const textoTipo = t => (t === 'stock' ? 'Compra de stock' : 'Gasto corriente');
+
+  function salirDeCorreccionGasto() {
+    editandoGasto = null;
+    el('gastoTitulo').textContent = 'Cargar gasto general';
+    el('gastoGuardar').textContent = 'Guardar gasto';
+    el('gastoCancelar').hidden = true;
+  }
+
+  function limpiarGasto() { ['g_monto', 'g_nota'].forEach(i => { el(i).value = ''; }); }
+
+  function cancelarCorreccionGasto() {
+    salirDeCorreccionGasto(); limpiarGasto();
+    el('g_fecha').value = fechaLocal();
+    el('gastoMsg').innerHTML = '';
+  }
+
+  function corregirGasto(g) {
+    editandoGasto = g;
+    el('gastoMsg').innerHTML = '';
+    el('gastoTitulo').textContent = `Corregir gasto del ${ddmmaa(g.fecha)} · ${g.categoria}`;
+    el('gastoGuardar').textContent = 'Guardar corrección';
+    el('gastoCancelar').hidden = false;
+    el('g_fecha').value = g.fecha; el('g_categoria').value = g.categoria_id;
+    el('g_monto').value = g.monto; el('g_nota').value = g.nota;
+    el('gastoTitulo').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function guardarGasto(ev) {
+    ev.preventDefault();
+    const body = { fecha: el('g_fecha').value, categoria_id: el('g_categoria').value, monto: el('g_monto').value, nota: el('g_nota').value };
+    const era = editandoGasto;
+    const btn = el('gastoGuardar');
+    btn.disabled = true;
+    try {
+      const g = await d.api(era ? '/caja/gastos/' + era.id : '/caja/gastos', { method: era ? 'PUT' : 'POST', body: JSON.stringify(body) });
+      salirDeCorreccionGasto(); limpiarGasto();
+      mensaje(el('gastoMsg'), 'ok', `${era ? 'Gasto corregido' : 'Gasto guardado'}: ${d.pesos(g.monto)} en ${g.categoria} (${ddmmaa(g.fecha)}).`);
+      cargarGastos();
+    } catch (e) {
+      mensaje(el('gastoMsg'), 'error', erroresDe(e));
+    } finally { btn.disabled = false; }
+  }
+
+  async function eliminarGasto(g) {
+    const motivo = await pedirMotivo({
+      titulo: 'Eliminar gasto',
+      detalle: `${g.categoria} · ${d.pesos(g.monto)} · ${ddmmaa(g.fecha)}. Dejará de contarse en los resúmenes.`,
+    });
+    if (!motivo) return;
+    try {
+      await d.api('/caja/gastos/' + g.id, { method: 'DELETE', body: JSON.stringify({ motivo }) });
+      if (editandoGasto && editandoGasto.id === g.id) cancelarCorreccionGasto();
+      cargarGastos();
+    } catch (e) { alert(erroresDe(e).join('\n')); cargarGastos(); }
+  }
+
+  function filaGasto(g) {
+    const tr = document.createElement('tr');
+    if (g.eliminado_en) tr.className = 'eliminado';
+    tr.appendChild(tdl('Fecha', `${diaSemana(g.fecha)} ${g.fecha.slice(8)}/${g.fecha.slice(5, 7)}/${g.fecha.slice(2, 4)}`));
+    const cat = tdl('Categoría', g.categoria, 'ancho-texto');
+    if (g.corregido_en) { const n = document.createElement('div'); n.className = 'nota'; n.textContent = 'Corregido el ' + d.ddmm(g.corregido_en); cat.appendChild(n); }
+    tr.appendChild(cat);
+    tr.appendChild(tdl('Tipo', textoTipo(g.tipo)));
+    tr.appendChild(tdl('Monto', d.pesos(g.monto), 'num'));
+    tr.appendChild(tdl('Detalle', g.nota || '—', 'ancho-texto'));
+    const acc = document.createElement('td');
+    acc.className = 'acciones-fila';
+    if (g.eliminado_en) {
+      acc.textContent = `Eliminado el ${d.ddmm(g.eliminado_en)}: ${g.motivo_eliminacion}`;
+      acc.classList.add('nota');
+    } else {
+      const bc = document.createElement('button'); bc.type = 'button'; bc.className = 'secundario'; bc.textContent = 'Corregir';
+      bc.addEventListener('click', () => corregirGasto(g));
+      const be = document.createElement('button'); be.type = 'button'; be.className = 'peligro'; be.textContent = 'Eliminar';
+      be.addEventListener('click', () => eliminarGasto(g));
+      acc.append(bc, be);
+    }
+    tr.appendChild(acc);
+    return tr;
+  }
+
+  async function cargarGastos() {
+    const params = new URLSearchParams();
+    new FormData(el('gastosFiltros')).forEach((v, k) => { if (String(v).trim()) params.set(k, v); });
+    const msg = el('gastosFiltrosMsg'); msg.innerHTML = '';
+    let filas;
+    try { filas = await d.api('/caja/gastos' + (params.toString() ? '?' + params : '')); }
+    catch (e) { mensaje(msg, 'error', erroresDe(e)); return; }
+    const tb = el('gastos'); tb.innerHTML = '';
+    el('gastosVacio').hidden = filas.length > 0;
+    filas.forEach(g => tb.appendChild(filaGasto(g)));
+    const t = C.resumirGastos(filas);
+    el('gastosTotales').textContent = filas.length === 0 ? '' :
+      `${t.cantidad} gasto(s) · Total ${centavosAPesos(t.total)} (compras de stock ${centavosAPesos(t.stock)} · gastos corrientes ${centavosAPesos(t.corrientes)})`
+      + (t.eliminados ? ` · ${t.eliminados} eliminado(s) no incluido(s) en los totales` : '');
+  }
+
   // ---- Datos base y arranque ----
   function llenarSelect(select, opciones, primera) {
     const actual = select.value;
@@ -266,17 +368,22 @@ window.Caja = (function () {
   }
 
   async function cargarBase() {
-    [puntos, precios] = await Promise.all([d.api('/puntos-venta'), d.api('/caja/precios')]);
+    [puntos, precios, categorias] = await Promise.all([d.api('/puntos-venta'), d.api('/caja/precios'), d.api('/caja/categorias')]);
     llenarSelect(el('c_pv'), puntos.filter(p => p.activo));
     llenarSelect(el('cf_pv'), puntos, 'Todos los puntos');
+    const conTipo = categorias.map(c => ({ id: c.id, nombre: c.tipo === 'stock' ? c.nombre + ' (stock)' : c.nombre }));
+    llenarSelect(el('g_categoria'), conTipo);
+    llenarSelect(el('gf_categoria'), conTipo, 'Todas las categorías');
     const hoy = fechaLocal();
-    el('c_fecha').max = hoy;
+    el('c_fecha').max = hoy; el('g_fecha').max = hoy;
     if (!el('c_fecha').value) el('c_fecha').value = hoy;
+    if (!el('g_fecha').value) el('g_fecha').value = hoy;
   }
 
   function cambiarVista(vista) {
     document.querySelectorAll('#cajaVistas button').forEach(b => b.classList.toggle('activo', b.dataset.vista === vista));
     ['cierre', 'gastos', 'resumen'].forEach(v => { el('vista-' + v).hidden = v !== vista; });
+    if (vista === 'gastos') cargarGastos();
   }
 
   async function mostrar() {
@@ -296,6 +403,11 @@ window.Caja = (function () {
     document.querySelectorAll('#cajaVistas button').forEach(b => b.addEventListener('click', () => cambiarVista(b.dataset.vista)));
     el('cierresFiltros').addEventListener('input', () => { clearTimeout(temporizador); temporizador = setTimeout(cargarLista, 250); });
     el('cierresFiltros').addEventListener('submit', e => e.preventDefault());
+    el('g_fecha').value = fechaLocal();
+    el('gastoForm').addEventListener('submit', guardarGasto);
+    el('gastoCancelar').addEventListener('click', cancelarCorreccionGasto);
+    el('gastosFiltros').addEventListener('input', () => { clearTimeout(temporizadorGastos); temporizadorGastos = setTimeout(cargarGastos, 250); });
+    el('gastosFiltros').addEventListener('submit', e => e.preventDefault());
   }
 
   return { iniciar, mostrar };

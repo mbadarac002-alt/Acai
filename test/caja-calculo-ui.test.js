@@ -57,3 +57,28 @@ test('los archivos JavaScript de la pantalla de caja no tienen errores de sintax
     assert.doesNotThrow(() => new vm.Script(fs.readFileSync(path.join(dir, f), 'utf8'), { filename: f }), f);
   }
 });
+
+// ---- T12 · totales del listado de gastos generales ----
+test('resumen de gastos: cantidad, total, stock y corrientes; los eliminados no cuentan', () => {
+  const lista = [
+    { monto: 150000, tipo: 'stock', eliminado_en: null },
+    { monto: 30000.5, tipo: 'stock', eliminado_en: null },
+    { monto: 20000, tipo: 'corriente', eliminado_en: null },
+    { monto: 999, tipo: 'corriente', eliminado_en: '2026-11-10 10:00' },
+  ];
+  assert.deepEqual(ui.resumirGastos(lista), { cantidad: 3, total: 20000050, stock: 18000050, corrientes: 2000000, eliminados: 1 });
+});
+
+test('resumen de gastos: lista vacía y centavos sin errores de coma flotante', () => {
+  assert.deepEqual(ui.resumirGastos([]), { cantidad: 0, total: 0, stock: 0, corrientes: 0, eliminados: 0 });
+  const r = ui.resumirGastos([{ monto: 0.1, tipo: 'corriente', eliminado_en: null }, { monto: 0.2, tipo: 'corriente', eliminado_en: null }]);
+  assert.equal(r.total, 30);
+});
+
+test('las pestañas principales del panel no capturan los botones de las vistas internas de Caja', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin.html'), 'utf8');
+  // los botones de las vistas de Caja también están dentro de un contenedor .tabs: el cambio de pestaña principal
+  // tiene que limitarse a los botones que tienen data-tab, o al tocar una vista se ocultaría toda la pestaña
+  assert.ok(!/querySelectorAll\('\.tabs button'\)/.test(html), "usar querySelectorAll('.tabs button[data-tab]')");
+  assert.match(html, /querySelectorAll\('\.tabs button\[data-tab\]'\)/);
+});

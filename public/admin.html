@@ -182,7 +182,45 @@
       </div>
 
       <div id="vista-gastos" hidden>
-        <section class="card"><h2>Gastos generales</h2><p class="vacio">Se habilita en el próximo paso.</p></section>
+        <section class="card">
+          <h2 id="gastoTitulo">Cargar gasto general</h2>
+          <p class="hint">Gastos del negocio que no son de un punto de venta: baldes de açaí, envases, publicidad, etc. Cada gasto cuenta entero en el día de su fecha.</p>
+          <form id="gastoForm" novalidate>
+            <div class="grid">
+              <div class="field"><label for="g_fecha">Fecha del gasto</label><input id="g_fecha" type="date"></div>
+              <div class="field"><label for="g_categoria">Categoría</label><select id="g_categoria"></select></div>
+              <div class="field"><label for="g_monto">Monto ($)</label><input id="g_monto" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+            </div>
+            <div class="field"><label for="g_nota">Detalle <span class="hint">opcional, ej. 15 baldes de açaí</span></label><input id="g_nota" autocomplete="off"></div>
+            <div id="gastoMsg"></div>
+            <button type="submit" id="gastoGuardar">Guardar gasto</button>
+            <button type="button" class="secundario" id="gastoCancelar" hidden>Cancelar corrección</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>Gastos cargados</h2>
+          <form id="gastosFiltros" novalidate>
+            <div class="grid">
+              <div class="field"><label for="gf_categoria">Categoría</label><select id="gf_categoria" name="categoria_id"></select></div>
+              <div class="field"><label for="gf_desde">Desde</label><input id="gf_desde" name="desde" type="date"></div>
+              <div class="field"><label for="gf_hasta">Hasta</label><input id="gf_hasta" name="hasta" type="date"></div>
+              <div class="field"><label for="gf_eliminados">Eliminados</label>
+                <select id="gf_eliminados" name="eliminados">
+                  <option value="">Ocultar eliminados</option>
+                  <option value="solo">Ver solo eliminados</option>
+                  <option value="todos">Ver activos y eliminados</option>
+                </select></div>
+            </div>
+            <div id="gastosFiltrosMsg"></div>
+          </form>
+          <p class="hint" id="gastosTotales" style="margin-top:12px"></p>
+          <div class="tabla-wrap"><table class="tarjetas">
+            <thead><tr><th>Fecha</th><th>Categoría</th><th>Tipo</th><th class="num">Monto</th><th>Detalle</th><th></th></tr></thead>
+            <tbody id="gastos"></tbody>
+          </table></div>
+          <p class="vacio" id="gastosVacio" hidden>No hay gastos con esos filtros.</p>
+        </section>
       </div>
       <div id="vista-resumen" hidden>
         <section class="card"><h2>Resumen</h2><p class="vacio">Se habilita en un paso posterior.</p></section>
@@ -262,8 +300,8 @@ const api = (url, opts = {}) => fetch('/api/admin' + url, {
 
 function td(text, cls) { const c = document.createElement('td'); c.textContent = text; if (cls) c.className = cls; return c; }
 
-document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
-  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('activo', x === b));
+document.querySelectorAll('.tabs button[data-tab]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button[data-tab]').forEach(x => x.classList.toggle('activo', x === b));
   ['pedidos', 'clientes', 'caja', 'config'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
   if (b.dataset.tab === 'clientes') cargarClientes();
   if (b.dataset.tab === 'caja') Caja.mostrar();

@@ -33,5 +33,17 @@
     return centavos < 0 ? 'dif-falta' : 'dif-sobra';
   }
 
-  return { aCentavos, precioVigente, calcularCierre, claseDiferencia };
+  /** Totales (en centavos) de un listado de gastos generales: los eliminados no cuentan, solo se informa cuántos hay. */
+  function resumirGastos(lista) {
+    const r = { cantidad: 0, total: 0, stock: 0, corrientes: 0, eliminados: 0 };
+    for (const g of lista) {
+      if (g.eliminado_en) { r.eliminados++; continue; }
+      const m = aCentavos(g.monto);
+      r.cantidad++; r.total += m;
+      if (g.tipo === 'stock') r.stock += m; else r.corrientes += m;
+    }
+    return r;
+  }
+
+  return { aCentavos, precioVigente, calcularCierre, claseDiferencia, resumirGastos };
 });
