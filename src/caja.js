@@ -359,6 +359,30 @@ router.post('/gastos', (req, res) => {
   res.status(201).json(gastoPorId(id));
 });
 
+const gastoActivo = id => (/^\d+$/.test(String(id)) ? db.prepare('SELECT * FROM gastos_generales WHERE id = ? AND eliminado_en IS NULL').get(Number(id)) : undefined);
+const MSG_GASTO_NO_ENCONTRADO = 'No se encontró el gasto. Puede que ya haya sido eliminado: actualizá el listado.';
+
+router.put('/gastos/:id', (req, res) => {
+  const actual = gastoActivo(req.params.id);
+  if (!actual) return res.status(404).json({ errores: [MSG_GASTO_NO_ENCONTRADO] });
+  const { errores, datos } = validarDatosGasto(req.body, ahoraLocal().fecha);
+  if (errores.length) return res.status(400).json({ errores });
+  const ahora = ahoraTexto();
+  db.prepare('UPDATE gastos_generales SET fecha = ?, monto = ?, categoria_id = ?, nota = ?, actualizado_en = ?, corregido_en = ? WHERE id = ?')
+    .run(datos.fecha, datos.monto, datos.categoria_id, datos.nota, ahora, ahora, actual.id);
+  res.json(gastoPorId(actual.id));
+});
+
+router.delete('/gastos/:id', (req, res) => {
+  const actual = gastoActivo(req.params.id);
+  if (!actual) return res.status(404).json({ errores: [MSG_GASTO_NO_ENCONTRADO] });
+  const motivo = String(req.body?.motivo ?? '').trim();
+  if (!motivo) return res.status(400).json({ errores: ['Indicá el motivo por el que se elimina el gasto.'] });
+  const ahora = ahoraTexto();
+  db.prepare('UPDATE gastos_generales SET eliminado_en = ?, motivo_eliminacion = ?, actualizado_en = ? WHERE id = ?').run(ahora, motivo, ahora, actual.id);
+  res.json(gastoPorId(actual.id));
+});
+
 function listarPuntosVenta(req, res) {
   res.json(db.prepare('SELECT id, nombre, activo FROM puntos_venta ORDER BY id').all().map(p => ({ ...p })));
 }
