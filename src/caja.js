@@ -2,7 +2,7 @@
 const express = require('express');
 const { db } = require('./db');
 const { ahoraLocal } = require('./reglas');
-const { aCentavos, aPesos, precioVigente, fechaValida } = require('./caja-reglas');
+const { aCentavos, aPesos, precioVigente, calcularCierre, fechaValida, validarFecha } = require('./caja-reglas');
 
 // ---------- Precios del bowl (RN-C2) ----------
 
@@ -62,8 +62,181 @@ function guardarPrecioBowl({ efectivo, transferencia, desde }) {
   return true;
 }
 
+// ---------- Cierres de caja (RN-C3) ----------
+
+const TIPOS_CIERRE = ['trabajado', 'no_trabajado', 'fin_temporada'];
+const MAX_MONTO_PESOS = 1e9;
+const MAX_BOWLS = 100000;
+
+const montoPesos = (errores, valor, etiqueta) => {
+  const n = vacio(valor) ? NaN : Number(valor);
+  if (!(Number.isFinite(n) && n >= 0 && n <= MAX_MONTO_PESOS)) {
+    errores.push(`${etiqueta} debe ser un monto mayor o igual a 0 (y no superar ${MAX_MONTO_PESOS.toLocaleString('es-AR')}).`);
+    return null;
+  }
+  return aCentavos(n);
+};
+const cantidadBowls = (errores, valor, etiqueta) => {
+  const n = vacio(valor) ? NaN : Number(valor);
+  if (!(Number.isInteger(n) && n >= 0 && n <= MAX_BOWLS)) {
+    errores.push(`La cantidad de bowls vendidos ${etiqueta} debe ser un número entero mayor o igual a 0 (máximo ${MAX_BOWLS}).`);
+    return null;
+  }
+  return n;
+};
+
+/**
+ * Valida y normaliza el body de un cierre (alta y corrección). Los montos salen en centavos.
+ * Para un día no trabajado o un fin de temporada se ignoran los montos que vengan: quedan en cero.
+ */
+function validarDatosCierre(body, hoy) {
+  const errores = [];
+  const b = body || {};
+  const pvTexto = String(b.punto_venta_id ?? '').trim();
+  const punto_venta_id = /^\d+$/.test(pvTexto) ? Number(pvTexto) : null;
+  if (punto_venta_id === null) errores.push('Elegí el punto de venta.');
+  const errFecha = validarFecha(b.fecha, hoy);
+  if (errFecha) errores.push(errFecha);
+  if (!TIPOS_CIERRE.includes(b.tipo)) errores.push('El tipo de cierre debe ser: trabajado, no_trabajado o fin_temporada.');
+
+  const datos = { punto_venta_id, fecha: b.fecha, tipo: b.tipo, motivo: '', fondo: 0, bowlsE: 0, bowlsT: 0, gastos: 0, nota_gastos: '', contado: 0, nota_diferencia: '' };
+  const texto = v => String(v ?? '').trim();
+  if (b.tipo === 'trabajado') {
+    datos.fondo = montoPesos(errores, b.fondo_inicial, 'El fondo inicial');
+    datos.bowlsE = cantidadBowls(errores, b.bowls_efectivo, 'en efectivo');
+    datos.bowlsT = cantidadBowls(errores, b.bowls_transferencia, 'por transferencia');
+    datos.gastos = montoPesos(errores, b.gastos, 'Los gastos del día');
+    datos.contado = montoPesos(errores, b.efectivo_contado, 'El efectivo contado');
+    datos.nota_gastos = texto(b.nota_gastos);
+    datos.nota_diferencia = texto(b.nota_diferencia);
+  } else if (b.tipo === 'no_trabajado') {
+    datos.motivo = texto(b.motivo);
+    if (!datos.motivo) errores.push('Indicá el motivo por el que no se trabajó ese día.');
+  } else if (b.tipo === 'fin_temporada') {
+    datos.motivo = texto(b.motivo) || 'Fin de temporada';
+  }
+  return { errores, datos };
+}
+
+/**
+ * Arma los campos que se guardan de un cierre (centavos). Para un día trabajado calcula ingresos, esperado y diferencia
+ * con el precio dado; si la diferencia no es cero, la nota es obligatoria (devuelve errores).
+ */
+function armarFilaCierre(datos, precio) {
+  const fila = {
+    tipo: datos.tipo, motivo: datos.motivo, fondo_inicial: 0, bowls_efectivo: 0, bowls_transferencia: 0,
+    precio_bowl_efectivo: null, precio_bowl_transferencia: null, ingresos_efectivo: 0, ingresos_transferencia: 0,
+    gastos: 0, nota_gastos: '', efectivo_esperado: 0, efectivo_contado: 0, diferencia: 0, nota_diferencia: '',
+  };
+  if (datos.tipo !== 'trabajado') return { errores: [], fila };
+  const c = calcularCierre({
+    fondoInicial: datos.fondo, bowlsEfectivo: datos.bowlsE, bowlsTransferencia: datos.bowlsT,
+    precioEfectivo: precio.precio_efectivo, precioTransferencia: precio.precio_transferencia,
+    gastos: datos.gastos, efectivoContado: datos.contado,
+  });
+  if (c.diferencia !== 0 && !datos.nota_diferencia) {
+    const signo = c.diferencia < 0 ? 'faltante' : 'sobrante';
+    return { errores: [`El efectivo contado no coincide con el esperado (${signo} de ${pesosTexto(Math.abs(c.diferencia))}): explicá la diferencia en la nota.`], fila };
+  }
+  Object.assign(fila, {
+    fondo_inicial: datos.fondo, bowls_efectivo: datos.bowlsE, bowls_transferencia: datos.bowlsT,
+    precio_bowl_efectivo: precio.precio_efectivo, precio_bowl_transferencia: precio.precio_transferencia,
+    ingresos_efectivo: c.ingresosEfectivo, ingresos_transferencia: c.ingresosTransferencia,
+    gastos: datos.gastos, nota_gastos: datos.nota_gastos, efectivo_esperado: c.efectivoEsperado,
+    efectivo_contado: datos.contado, diferencia: c.diferencia, nota_diferencia: datos.nota_diferencia,
+  });
+  return { errores: [], fila };
+}
+
+const pesosTexto = centavos => '$' + aPesos(centavos).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const ahoraTexto = () => { const a = ahoraLocal(); return `${a.fecha} ${a.hora}`; };
+const opcional = c => (c === null ? null : aPesos(c));
+
+/** Un cierre tal como lo devuelve la API: montos en pesos y los totales calculados (ventas y utilidad relativa). */
+function cierreParaApi(f) {
+  const ventas = f.ingresos_efectivo + f.ingresos_transferencia;
+  return {
+    id: f.id, punto_venta_id: f.punto_venta_id, punto_venta: f.punto_venta, fecha: f.fecha, tipo: f.tipo, motivo: f.motivo,
+    fondo_inicial: aPesos(f.fondo_inicial), bowls_efectivo: f.bowls_efectivo, bowls_transferencia: f.bowls_transferencia,
+    precio_bowl_efectivo: opcional(f.precio_bowl_efectivo), precio_bowl_transferencia: opcional(f.precio_bowl_transferencia),
+    ingresos_efectivo: aPesos(f.ingresos_efectivo), ingresos_transferencia: aPesos(f.ingresos_transferencia),
+    gastos: aPesos(f.gastos), nota_gastos: f.nota_gastos, efectivo_esperado: aPesos(f.efectivo_esperado),
+    efectivo_contado: aPesos(f.efectivo_contado), diferencia: aPesos(f.diferencia), nota_diferencia: f.nota_diferencia,
+    ventas: aPesos(ventas), utilidad_relativa: aPesos(ventas - f.gastos),
+    creado_en: f.creado_en, actualizado_en: f.actualizado_en, corregido_en: f.corregido_en,
+    eliminado_en: f.eliminado_en, motivo_eliminacion: f.motivo_eliminacion,
+  };
+}
+
+const SELECT_CIERRE = `SELECT c.*, p.nombre AS punto_venta FROM cierres_caja c JOIN puntos_venta p ON p.id = c.punto_venta_id`;
+const cierrePorId = id => {
+  const f = db.prepare(`${SELECT_CIERRE} WHERE c.id = ?`).get(id);
+  return f ? cierreParaApi({ ...f }) : null;
+};
+
+const MSG_DUPLICADO = 'Ya hay un cierre cargado para ese punto de venta en esa fecha. Corregilo o eliminalo si hace falta.';
+const MSG_SIN_PRECIO = 'No hay un precio del bowl configurado para esa fecha. Configurá los precios (con la fecha desde la que rigen) antes de cargar el cierre.';
+
 // ---------- Rutas (se montan bajo /api/admin/caja, ya protegidas por el acceso del panel) ----------
 const router = express.Router();
+
+router.get('/cierres', (req, res) => {
+  const q = k => String(req.query[k] ?? '').trim();
+  const desde = q('desde'), hasta = q('hasta'), pv = q('punto_venta_id'), eliminados = q('eliminados');
+  const errores = [];
+  if (desde && !fechaValida(desde)) errores.push('La fecha "desde" es inválida: usá el formato AAAA-MM-DD.');
+  if (hasta && !fechaValida(hasta)) errores.push('La fecha "hasta" es inválida: usá el formato AAAA-MM-DD.');
+  if (!errores.length && desde && hasta && desde > hasta) errores.push('La fecha "desde" no puede ser posterior a "hasta".');
+  if (pv && !/^\d+$/.test(pv)) errores.push('Punto de venta inválido.');
+  if (eliminados && !['solo', 'todos'].includes(eliminados)) errores.push('Filtro de eliminados inválido.');
+  if (errores.length) return res.status(400).json({ errores });
+
+  const where = [], params = [];
+  if (desde) { where.push('c.fecha >= ?'); params.push(desde); }
+  if (hasta) { where.push('c.fecha <= ?'); params.push(hasta); }
+  if (pv) { where.push('c.punto_venta_id = ?'); params.push(Number(pv)); }
+  if (eliminados === '') where.push('c.eliminado_en IS NULL');
+  else if (eliminados === 'solo') where.push('c.eliminado_en IS NOT NULL');
+  const filas = db.prepare(`${SELECT_CIERRE} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY c.fecha DESC, c.punto_venta_id, c.id DESC`).all(...params);
+  res.json(filas.map(f => cierreParaApi({ ...f })));
+});
+
+router.post('/cierres', (req, res) => {
+  const { errores, datos } = validarDatosCierre(req.body, ahoraLocal().fecha);
+  if (errores.length) return res.status(400).json({ errores });
+
+  const pv = db.prepare('SELECT id FROM puntos_venta WHERE id = ? AND activo = 1').get(datos.punto_venta_id);
+  if (!pv) return res.status(404).json({ errores: ['No se encontró el punto de venta, o está inactivo.'] });
+  const existente = db.prepare('SELECT id FROM cierres_caja WHERE punto_venta_id = ? AND fecha = ? AND eliminado_en IS NULL').get(datos.punto_venta_id, datos.fecha);
+  if (existente) return res.status(409).json({ errores: [MSG_DUPLICADO] });
+
+  const precio = datos.tipo === 'trabajado' ? precioVigente(historialPreciosCentavos(), datos.fecha) : null;
+  if (datos.tipo === 'trabajado' && !precio) return res.status(409).json({ errores: [MSG_SIN_PRECIO] });
+
+  const armado = armarFilaCierre(datos, precio);
+  if (armado.errores.length) return res.status(400).json({ errores: armado.errores });
+
+  const f = armado.fila, ahora = ahoraTexto();
+  let id;
+  try {
+    id = Number(db.prepare(`
+      INSERT INTO cierres_caja (punto_venta_id, fecha, tipo, motivo, fondo_inicial, bowls_efectivo, bowls_transferencia,
+        precio_bowl_efectivo, precio_bowl_transferencia, ingresos_efectivo, ingresos_transferencia, gastos, nota_gastos,
+        efectivo_esperado, efectivo_contado, diferencia, nota_diferencia, creado_en, actualizado_en)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(datos.punto_venta_id, datos.fecha, f.tipo, f.motivo, f.fondo_inicial, f.bowls_efectivo, f.bowls_transferencia,
+      f.precio_bowl_efectivo, f.precio_bowl_transferencia, f.ingresos_efectivo, f.ingresos_transferencia, f.gastos, f.nota_gastos,
+      f.efectivo_esperado, f.efectivo_contado, f.diferencia, f.nota_diferencia, ahora, ahora).lastInsertRowid);
+  } catch (e) {
+    if (/UNIQUE/.test(String(e.message))) return res.status(409).json({ errores: [MSG_DUPLICADO] }); // carga simultánea
+    throw e;
+  }
+  res.status(201).json(cierrePorId(id));
+});
+
+function listarPuntosVenta(req, res) {
+  res.json(db.prepare('SELECT id, nombre, activo FROM puntos_venta ORDER BY id').all().map(p => ({ ...p })));
+}
 
 router.get('/precios', (req, res) => {
   res.json(historialPreciosCentavos().map(f => ({
@@ -74,4 +247,4 @@ router.get('/precios', (req, res) => {
   })));
 });
 
-module.exports = { router, preciosBowlParaConfig, validarPreciosBowl, guardarPrecioBowl };
+module.exports = { router, listarPuntosVenta, preciosBowlParaConfig, validarPreciosBowl, guardarPrecioBowl };

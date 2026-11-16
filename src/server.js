@@ -352,6 +352,7 @@ admin.get('/clientes', (req, res) => {
   res.json(rows);
 });
 
+admin.get('/puntos-venta', caja.listarPuntosVenta);
 admin.use('/caja', caja.router);
 app.use('/api/admin', admin);
 

@@ -347,7 +347,7 @@ Carga inicial: ver RN-C5.
 
 ### 9.5 API (panel del propietario, mismo HTTP Basic que `/api/admin`)
 
-Montos en pesos (número, hasta 2 decimales); cantidades de bowls, enteros; fechas `YYYY-MM-DD`. Errores de validación: 400 `{ errores: [...] }`.
+Montos en pesos (número, hasta 2 decimales); cantidades de bowls, enteros; fechas `YYYY-MM-DD`. Los errores (400, 404 y 409) devuelven `{ errores: [...] }`, igual que el resto del panel. Límites de cordura: montos hasta $1.000.000.000 y hasta 100.000 bowls por medio de pago.
 
 | Método | Ruta | Descripción |
 |---|---|---|
