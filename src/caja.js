@@ -2,7 +2,7 @@
 const express = require('express');
 const { db } = require('./db');
 const { ahoraLocal } = require('./reglas');
-const { aCentavos, aPesos, precioVigente, calcularCierre, calcularResultado, fechaValida, validarFecha, validarRango, AGRUPACIONES } = require('./caja-reglas');
+const { aCentavos, aPesos, precioVigente, calcularCierre, calcularResultado, fechaValida, validarFecha, validarRango, periodosDelRango, AGRUPACIONES } = require('./caja-reglas');
 
 // ---------- Precios del bowl (RN-C2) ----------
 
@@ -459,6 +459,14 @@ function resumenDePeriodo({ periodo, desde, hasta }) {
   };
 }
 
+/** Hay actividad en un período si tiene algún pedido cobrado, algún cierre activo (de cualquier tipo) o algún gasto general. */
+function hayActividad({ desde, hasta }) {
+  const hay = sql => db.prepare(sql).get(desde, hasta) !== undefined;
+  return hay("SELECT 1 FROM pedidos WHERE estado = 'cobrado' AND eliminado_en IS NULL AND substr(fecha_cobro, 1, 10) BETWEEN ? AND ? LIMIT 1")
+    || hay('SELECT 1 FROM cierres_caja WHERE eliminado_en IS NULL AND fecha BETWEEN ? AND ? LIMIT 1')
+    || hay('SELECT 1 FROM gastos_generales WHERE eliminado_en IS NULL AND fecha BETWEEN ? AND ? LIMIT 1');
+}
+
 router.get('/resumen', (req, res) => {
   const q = k => String(req.query[k] ?? '').trim();
   const desde = q('desde'), hasta = q('hasta'), agrupar = q('agrupar') || 'total';
@@ -466,9 +474,12 @@ router.get('/resumen', (req, res) => {
   const errRango = validarRango(desde, hasta);
   if (errRango) errores.push(errRango);
   if (!AGRUPACIONES.includes(agrupar)) errores.push(`La agrupación debe ser: ${AGRUPACIONES.join(', ')}.`);
-  else if (agrupar !== 'total') errores.push('La agrupación por día, semana o mes todavía no está disponible.');
   if (errores.length) return res.status(400).json({ errores });
-  res.json({ desde, hasta, agrupar, periodos: [resumenDePeriodo({ periodo: 'total', desde, hasta })] });
+  // Con agrupar=total siempre hay un período; con día, semana o mes solo aparecen los períodos con actividad.
+  const periodos = periodosDelRango(desde, hasta, agrupar)
+    .filter(per => agrupar === 'total' || hayActividad(per))
+    .map(resumenDePeriodo);
+  res.json({ desde, hasta, agrupar, periodos });
 });
 
 function listarPuntosVenta(req, res) {
