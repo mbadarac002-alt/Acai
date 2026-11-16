@@ -29,11 +29,24 @@
       </div>
     </form>
   </dialog>
+  <dialog id="dlgMotivo">
+    <form id="formMotivo" method="dialog" novalidate>
+      <h2 id="motivoTitulo">Eliminar</h2>
+      <p class="hint" id="motivoDetalle"></p>
+      <div class="field"><label for="motivoTexto">Motivo <span class="hint">obligatorio</span></label><input id="motivoTexto" autocomplete="off"></div>
+      <div id="motivoMsg"></div>
+      <div class="acciones">
+        <button type="button" class="secundario" id="motivoCancelar">Cancelar</button>
+        <button type="submit" class="peligro" id="motivoConfirmar">Eliminar</button>
+      </div>
+    </form>
+  </dialog>
   <main class="wrap">
     <div class="stats" id="stats"></div>
     <div class="tabs">
       <button data-tab="pedidos" class="activo">Pedidos</button>
       <button data-tab="clientes">Clientes</button>
+      <button data-tab="caja">Caja</button>
       <button data-tab="config">Configuración</button>
     </div>
 
@@ -89,6 +102,92 @@
       <p class="vacio" id="clientesVacio" hidden>No hay clientes registrados.</p>
     </section>
 
+    <div id="tab-caja" hidden>
+      <div class="tabs" id="cajaVistas">
+        <button type="button" data-vista="cierre" class="activo">Cierre diario</button>
+        <button type="button" data-vista="gastos">Gastos generales</button>
+        <button type="button" data-vista="resumen">Resumen</button>
+      </div>
+
+      <div id="vista-cierre">
+        <section class="card">
+          <h2 id="cierreTitulo">Cargar cierre del día</h2>
+          <div class="aviso" id="cierreSinPrecios" hidden></div>
+          <form id="cierreForm" novalidate>
+            <div class="grid">
+              <div class="field"><label for="c_pv">Punto de venta</label><select id="c_pv"></select></div>
+              <div class="field"><label for="c_fecha">Fecha del cierre</label><input id="c_fecha" type="date"></div>
+            </div>
+            <div class="field"><label>¿Cómo fue el día?</label>
+              <div class="segmentado" id="c_tipo">
+                <label><input type="radio" name="c_tipo" value="trabajado" checked> Trabajó</label>
+                <label><input type="radio" name="c_tipo" value="no_trabajado"> No trabajó</label>
+                <label><input type="radio" name="c_tipo" value="fin_temporada"> Fin de temporada</label>
+              </div></div>
+
+            <div id="c_trabajado">
+              <div class="grid">
+                <div class="field"><label for="c_fondo">Fondo inicial ($) <span class="hint">para vueltos</span></label><input id="c_fondo" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+                <div class="field"><label for="c_bowls_ef">Bowls vendidos en efectivo</label><input id="c_bowls_ef" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>
+                <div class="field"><label for="c_bowls_tr">Bowls vendidos por transferencia</label><input id="c_bowls_tr" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>
+                <div class="field"><label for="c_gastos">Gastos del día ($) <span class="hint">pagados en efectivo</span></label><input id="c_gastos" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+                <div class="field"><label for="c_contado">Efectivo contado al cerrar ($) <span class="hint">incluye el fondo</span></label><input id="c_contado" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+              </div>
+              <div class="field"><label for="c_nota_gastos">Detalle de los gastos <span class="hint">opcional, ej. hielo, nafta</span></label><input id="c_nota_gastos" autocomplete="off"></div>
+              <div class="calculo" aria-live="polite">
+                <h3>Cuenta del día</h3>
+                <dl>
+                  <dt>Precio del bowl</dt><dd id="k_precios">—</dd>
+                  <dt>Ventas en efectivo</dt><dd id="k_ventas_ef">—</dd>
+                  <dt>Ventas por transferencia</dt><dd id="k_ventas_tr">—</dd>
+                  <dt>Ventas del día</dt><dd class="grande" id="k_ventas">—</dd>
+                  <dt>Efectivo esperado en caja <span class="hint">fondo + efectivo − gastos</span></dt><dd id="k_esperado">—</dd>
+                  <dt>Diferencia <span class="hint">contado − esperado</span></dt><dd class="grande" id="k_dif">—</dd>
+                  <dt>Utilidad del día <span class="hint">ventas − gastos</span></dt><dd class="grande" id="k_utilidad">—</dd>
+                </dl>
+              </div>
+              <div class="field" id="c_nota_dif_box" hidden><label for="c_nota_dif">Explicá la diferencia <span class="hint">obligatorio: el efectivo contado no coincide con el esperado</span></label><input id="c_nota_dif" autocomplete="off"></div>
+            </div>
+
+            <div class="field" id="c_motivo_box" hidden><label for="c_motivo" id="c_motivo_label">Motivo</label><input id="c_motivo" autocomplete="off" placeholder="Ej.: lluvia, feriado"></div>
+
+            <div id="cierreMsg"></div>
+            <button type="submit" id="cierreGuardar">Guardar cierre</button>
+            <button type="button" class="secundario" id="cierreCancelar" hidden>Cancelar corrección</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>Cierres cargados</h2>
+          <form id="cierresFiltros" novalidate>
+            <div class="grid">
+              <div class="field"><label for="cf_pv">Punto de venta</label><select id="cf_pv" name="punto_venta_id"></select></div>
+              <div class="field"><label for="cf_desde">Desde</label><input id="cf_desde" name="desde" type="date"></div>
+              <div class="field"><label for="cf_hasta">Hasta</label><input id="cf_hasta" name="hasta" type="date"></div>
+              <div class="field"><label for="cf_eliminados">Eliminados</label>
+                <select id="cf_eliminados" name="eliminados">
+                  <option value="">Ocultar eliminados</option>
+                  <option value="solo">Ver solo eliminados</option>
+                  <option value="todos">Ver activos y eliminados</option>
+                </select></div>
+            </div>
+            <div id="cierresFiltrosMsg"></div>
+          </form>
+          <div class="tabla-wrap"><table class="tarjetas">
+            <thead><tr><th>Fecha</th><th>Punto de venta</th><th>Día</th><th class="num">Bowls (ef. + transf.)</th><th class="num">Ventas</th><th class="num">Gastos</th><th class="num">Esperado</th><th class="num">Contado</th><th class="num">Diferencia</th><th class="num">Utilidad</th><th></th></tr></thead>
+            <tbody id="cierres"></tbody>
+          </table></div>
+          <p class="vacio" id="cierresVacio" hidden>No hay cierres con esos filtros.</p>
+        </section>
+      </div>
+
+      <div id="vista-gastos" hidden>
+        <section class="card"><h2>Gastos generales</h2><p class="vacio">Se habilita en el próximo paso.</p></section>
+      </div>
+      <div id="vista-resumen" hidden>
+        <section class="card"><h2>Resumen</h2><p class="vacio">Se habilita en un paso posterior.</p></section>
+      </div>
+    </div>
     <section class="card" id="tab-config" hidden>
       <h2>Configuración</h2>
       <form id="configForm" novalidate>
@@ -149,6 +248,8 @@
     </section>
   </main>
 
+<script src="/static/caja-calculo.js"></script>
+<script src="/static/caja.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const pesos = n => '$' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -163,8 +264,9 @@ function td(text, cls) { const c = document.createElement('td'); c.textContent =
 
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('activo', x === b));
-  ['pedidos', 'clientes', 'config'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
+  ['pedidos', 'clientes', 'caja', 'config'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
   if (b.dataset.tab === 'clientes') cargarClientes();
+  if (b.dataset.tab === 'caja') Caja.mostrar();
 }));
 
 async function cargarStats() {
@@ -361,6 +463,7 @@ $('#filtros').addEventListener('input', () => { clearTimeout(debounce); debounce
 $('#filtros').addEventListener('submit', e => e.preventDefault());
 $('#limpiarFiltros').addEventListener('click', () => { $('#filtros').reset(); cargarPedidos(); });
 cargarStats(); cargarPedidos(); cargarConfig();
+Caja.iniciar({ api, $, pesos, ddmm, irAConfiguracion: () => document.querySelector('.tabs button[data-tab="config"]').click() });
 </script>
 </body>
 </html>
