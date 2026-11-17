@@ -1,13 +1,13 @@
 # Especificación · Açaí Pedidos Mayoristas
 
 Prototipo para recibir y administrar pedidos mayoristas de baldes de açaí.
-Este documento describe el comportamiento actual del sistema (derivado del código en `src/`).
+Este documento describe el comportamiento actual del sistema (derivado del código en `src/`). Las secciones 1 a 8 cubren los pedidos mayoristas; el módulo de administración de caja está en la sección 9.
 
 ## 1. Alcance
 
 **Actores**
 - **Cliente:** realiza pedidos desde una página pública, sin cuenta.
-- **Propietario:** administra precio, descuentos, estados de pedidos y consulta clientes desde `/admin`.
+- **Propietario:** administra precio, descuentos, estados de pedidos y consulta clientes desde `/admin`. También lleva la caja: carga los cierres diarios de los puntos de venta y los gastos generales, y consulta el resumen de resultados (sección 9).
 
 **Fuera de alcance (prototipo):** pagos online, cuentas de cliente, stock, múltiples productos, edición/cancelación de pedidos, historial de cambios de estado.
 
@@ -15,7 +15,8 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 
 - Node.js >= 22.13 (usa `node:sqlite`), Express 4, Nodemailer 6.
 - Base SQLite en un único archivo (`DB_PATH`, por defecto `data/acai.db`).
-- Frontend estático: `public/index.html`, `public/admin.html`, `public/static/styles.css`.
+- Frontend estático: `public/index.html`, `public/admin.html`, `public/static/styles.css` y, para la pestaña Caja, `public/static/caja.js` y `public/static/caja-calculo.js`.
+- Módulo de caja: `src/caja.js` (rutas y acceso a datos) y `src/caja-reglas.js` (reglas puras de cálculo).
 
 ## 3. Modelo de datos
 
@@ -59,6 +60,8 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 | telegram_chat_id | vacío | ID de chat de Telegram del propietario (número; negativo si es un grupo) |
 | canal_notificacion | `mail` | `mail`, `telegram` o `ambos` (un valor guardado inexistente, como el antiguo `whatsapp`, se interpreta como `mail`) |
 
+**Módulo de caja:** las tablas `puntos_venta`, `precios_bowl`, `cierres_caja`, `categorias_gasto` y `gastos_generales` se describen en 9.4. Los precios del bowl **no** están en `config`: tienen historial con fecha de vigencia en `precios_bowl`; `GET /api/admin/config` los devuelve igualmente (los vigentes hoy) y `PUT /api/admin/config` los acepta como campos opcionales.
+
 ## 4. Reglas de negocio
 
 ### RN-1 Cliente
@@ -88,7 +91,7 @@ Este documento describe el comportamiento actual del sistema (derivado del códi
 - `recibido` (inicial) → `en_proceso` → `entregado` → `cobrado`.
 - El panel puede asignar cualquiera de los estados `recibido`, `en_proceso` y `entregado` en cualquier orden (el código no impone el orden). **`cobrado` es final:** un pedido cobrado no puede cambiar de estado (409) ni volver a cobrarse.
 - **Cobrado y forma de pago:** al pasar un pedido a `cobrado` el panel pide la forma de pago: *contado* (todo efectivo), *transferencia* (todo transferencia) o *combinación* (se indica cuánto de cada una; al cargar un monto el otro se completa con el resto). `pago_efectivo + pago_transferencia` debe ser igual al `total` del pedido (comparado en centavos); si no, el servidor responde 400 y el estado no cambia. Cancelar el diálogo deja el estado como estaba. Como el cobro es definitivo, el selector de estado queda deshabilitado en los pedidos cobrados.
-- **Corregir cobro:** en un pedido cobrado el panel ofrece **Corregir cobro**, que abre el mismo diálogo precargado con el pago actual. Los nuevos montos también deben sumar el total. El estado sigue siendo `cobrado`, `fecha_cobro` no cambia y se registra `cobro_corregido_en` (el panel muestra "corregido" con esa fecha). No hay historial de los montos anteriores. Estos datos son la base para la futura administración de caja; el cliente no los ve.
+- **Corregir cobro:** en un pedido cobrado el panel ofrece **Corregir cobro**, que abre el mismo diálogo precargado con el pago actual. Los nuevos montos también deben sumar el total. El estado sigue siendo `cobrado`, `fecha_cobro` no cambia y se registra `cobro_corregido_en` (el panel muestra "corregido" con esa fecha). No hay historial de los montos anteriores. Estos datos alimentan las ventas mayoristas del resumen de caja (sección 9, RN-C1); el cliente no los ve.
 
 ### RN-6 Notificación
 - Al crear un pedido se avisa al propietario según `canal_notificacion`: `mail` (por defecto), `telegram` o `ambos`.
@@ -126,13 +129,14 @@ Error interno → 500 y rollback (cliente y pedido se registran en una sola tran
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET | `/admin` | Panel |
-| GET | `/api/admin/config` | Configuración actual |
-| PUT | `/api/admin/config` | Actualiza configuración |
+| GET | `/api/admin/config` | Configuración actual (incluye los precios del bowl vigentes hoy, ver 9.5) |
+| PUT | `/api/admin/config` | Actualiza configuración (los precios del bowl son opcionales, ver 9.5) |
 | GET | `/api/admin/pedidos` | Lista pedidos (más recientes primero), con filtros opcionales combinables (AND), ver abajo |
 | PATCH | `/api/admin/pedidos/:id` | Body `{ estado }`; si `estado` es `cobrado` también `{ pago_efectivo, pago_transferencia }` (números ≥ 0, uno puede omitirse = 0, deben sumar el total); 400 si el estado es inválido o el pago no cuadra; 404 si no existe o está eliminado; 409 si el pedido ya está cobrado |
 | PATCH | `/api/admin/pedidos/:id/cobro` | Corrige la forma de pago de un pedido cobrado. Body `{ pago_efectivo, pago_transferencia }` (mismas reglas: ≥ 0, suman el total); 400 si no cuadra; 404 si no existe o está eliminado; 409 si el pedido no está cobrado |
 | DELETE | `/api/admin/pedidos/:id` | Borrado lógico: marca el pedido como eliminado (`eliminado_en`); 404 si no existe o ya estaba eliminado. La confirmación se pide en el panel antes de llamar |
 | GET | `/api/admin/clientes` | Clientes con totales: pedidos, baldes_totales, baldes_mes (mes calendario actual), facturado |
+| — | `/api/admin/puntos-venta`, `/api/admin/caja/*` | Módulo de caja: precios del bowl, cierres, gastos generales y resumen (ver 9.5) |
 
 **Filtros de `GET /api/admin/pedidos`** (todos opcionales):
 | Parámetro | Criterio |
@@ -170,14 +174,19 @@ Validaciones de `PUT /config`: precio > 0; umbral entero ≥ 0; descuento 0–10
 - **Datos personales:** se almacenan DNI, dirección y teléfono sin cifrar.
 - **Estados:** no hay validación de transiciones ni registro de auditoría.
 - **Descuento:** el cambio de umbral/porcentaje no recalcula pedidos existentes.
+- **Caja:** no hay bloqueo de días ni de meses (todo cierre y gasto puede corregirse siempre) ni historial de valores anteriores al corregir. Eliminar un pedido mayorista ya cobrado lo saca retroactivamente de los resúmenes de ese día.
+- **Archivos estáticos:** `public/static/caja.js` y `caja-calculo.js` se sirven sin clave, igual que `styles.css`; solo contienen la lógica de la pantalla, no datos. Los datos de caja se obtienen únicamente por `/api/admin/*`, que exige el acceso del panel.
 
 ## 8. Pruebas
 
-`npm test` (runner nativo de Node): `test/reglas.test.js` (reglas puras) y `test/api.test.js` (endpoints).
+`npm test` (runner nativo de Node):
+
+- Pedidos mayoristas: `test/reglas.test.js` (reglas puras) y `test/api.test.js` (endpoints, migraciones y sintaxis de las páginas).
+- Caja: ver 9.8.
 
 ## 9. Módulo de administración (caja)
 
-> **Estado: BORRADOR v3, pendiente de aprobación. Nada de esta sección está implementado.** Ajustado con las respuestas del propietario (precio del bowl por medio de pago y **según la fecha del cierre**, cierre obligatorio todos los días, **cierre de temporada**, ventas totales y utilidad relativa). Metodología: Specification Driven Development. Primero se aprueba esta sección, después se planifican las tareas y recién entonces se implementa (test primero, código después). Las secciones 1 a 8 describen el sistema ya implementado.
+> **Estado: IMPLEMENTADO (2026-11-17).** Verificado contra los criterios de 9.7 (ver [verificacion-caja.md](verificacion-caja.md)). Se desarrolló con Specification Driven Development: primero esta especificación, después el plan ([plan.md](plan.md)) y recién entonces el código, tarea por tarea y con el test primero. Incluye lo acordado con el propietario: precio del bowl por medio de pago y según la fecha del cierre, cierre obligatorio todos los días, cierre de temporada, ventas totales y utilidad relativa.
 
 ### 9.1 Objetivo y alcance del MVP
 
@@ -185,7 +194,7 @@ Permitir al propietario ver cuánto vende, gasta y gana el negocio, por día, po
 
 1. **Mayorista:** los pedidos ya desarrollados (secciones 1 a 8). Sus ingresos **no se cargan a mano**: salen de los pedidos en estado `cobrado`.
 2. **Minorista (al público):** ventas en la playa, en tres **puntos de venta**: Miramar 1, Miramar 2 y Chapadmalal. Los vendedores **no usan el sistema**: le rinden al propietario y **él carga** el cierre de caja de cada día. El bowl de açaí tiene **dos precios** (pago en efectivo y pago por transferencia); el vendedor informa **cuántos bowls vendió de cada tipo** y el sistema calcula los ingresos.
-3. **Delivery:** módulo futuro, todavía sin definir. **Fuera del MVP** (ver 9.9). El diseño no debe impedir sumarlo después como una unidad más.
+3. **Delivery:** módulo futuro, **fuera de este MVP** (ver 9.9). El propietario ya describió cómo quiere registrarlo; se especificará aparte y se sumará al resumen como una unidad más. El diseño de la caja ya lo admite.
 
 Además hay **gastos generales** del negocio (compra de baldes de açaí, envases descartables, etc.), sin punto de venta asociado.
 
@@ -394,6 +403,8 @@ Montos en pesos (número, hasta 2 decimales); cantidades de bowls, enteros; fech
 
 Con `agrupar=dia`, `semana` o `mes` se devuelve **un período por cada día, semana o mes del rango**, también los que no tuvieron movimientos (en cero); con `total`, un único período. `diferencia_caja` es la suma de las diferencias de los cierres del período (informativa; no entra en el resultado). Fechas inválidas, `desde > hasta`, rango > 366 días o `agrupar` inválido → 400.
 
+`avisos` incluye solo los puntos de venta que tienen al menos un día sin cierre en el rango (si no hay ninguno, la lista está vacía). `no_trabajados` incluye todos los días no trabajados y fines de temporada del rango, ordenados por fecha. Ambas listas son las mismas para cualquier `agrupar`.
+
 ### 9.6 Interfaz (panel `/admin`)
 
 - **Configuración (existente):** se agregan los campos "Precio del bowl en efectivo", "Precio del bowl por transferencia" y "Rige desde" (por defecto hoy), con la lista del historial de precios.
@@ -464,7 +475,21 @@ En los ejemplos, precio del bowl: **$4.000 en efectivo** y **$4.500 por transfer
 
 ### 9.8 Pruebas
 
-Se agregan a `npm test` (`test/caja.test.js` para las reglas puras de cálculo y `test/api.test.js` o un archivo nuevo para los endpoints), siguiendo los criterios de 9.7. Los cálculos (ingresos por bowls, esperado, diferencia, utilidad, resultado, agrupación por semana, días sin cierre) viven en funciones puras testeables, como `src/reglas.js`.
+Las pruebas corren con `npm test` y siguen los criterios de 9.7 (el informe de qué prueba cubre cada criterio está en [verificacion-caja.md](verificacion-caja.md)):
+
+| Archivo | Cubre |
+|---|---|
+| `test/caja-reglas.test.js` | reglas puras de `src/caja-reglas.js`: dinero, precio vigente, cierre, resultado, fechas, semanas, días sin cierre |
+| `test/caja-db.test.js` | esquema y carga inicial |
+| `test/caja-precios.test.js` | precios del bowl con vigencia por fecha |
+| `test/caja-cierres.test.js`, `test/caja-correccion.test.js` | alta, listado, corrección y borrado de cierres |
+| `test/caja-gastos.test.js`, `test/caja-gastos-correccion.test.js` | gastos generales |
+| `test/caja-resumen.test.js`, `test/caja-resumen-agrupado.test.js` | resumen total y agrupado |
+| `test/caja-avisos.test.js` | días sin cierre, días no trabajados y fin de temporada |
+| `test/caja-criterios.test.js` | base anterior al módulo y primer precio con vigencia posterior |
+| `test/caja-calculo-ui.test.js` | el cálculo en vivo de la pantalla coincide con el del servidor; fechas, etiquetas y atajos de rango; sintaxis de los JavaScript de la pantalla |
+
+Los cálculos viven en funciones puras testeables, como `src/reglas.js`. La pantalla no tiene pruebas automáticas de navegador; se verificó a mano (ver el informe).
 
 ### 9.9 Fuera de alcance (MVP)
 
@@ -491,6 +516,7 @@ Se agregan a `npm test` (`test/caja.test.js` para las reglas puras de cálculo y
 - El cierre es diario y obligatorio; un día no trabajado se informa con su motivo y un día trabajado sin ventas se informa en cero.
 - **Al informar el fin de temporada, no se avisan más días sin cierre** de ese punto de venta.
 - Los gastos generales se descuentan siempre para calcular el resultado del período.
+- En las agrupaciones por día, semana y mes se muestran **todos** los períodos del rango, también los que no tuvieron movimientos.
 - Se quiere ver **ventas totales** y **utilidad relativa** (sin gastos generales), en cada cierre y en el resumen.
 - No se guardan los valores anteriores al corregir.
 
@@ -509,4 +535,4 @@ Se agregan a `npm test` (`test/caja.test.js` para las reglas puras de cálculo y
 1. Si un precio se cargó con un error, el historial no se edita (solo se agregan cambios): ¿alcanza con agregar un cambio corregido con la misma fecha (que reemplaza al anterior), sabiendo que los cierres ya cargados conservan el precio viejo? ¿O hace falta **recalcular los cierres existentes**?
 2. ¿Los pedidos mayoristas pueden cobrarse un día y eliminarse días después? Hoy, eliminar un pedido cobrado lo saca retroactivamente de los resúmenes de ese día, porque no hay días cerrados. ¿Es aceptable?
 3. ¿El **costo de la mercadería** debe verse alguna vez asociado a las ventas (margen real), o alcanza con la utilidad relativa y el resultado por separado?
-4. ¿El delivery tendrá ventas y gastos propios? Cuando se defina, se agrega como una unidad más.
+4. **Delivery:** el propietario describió cómo quiere registrarlo (se carga desde el panel, con potes de medio kilo y de un kilo, estados recibido, entregado y cobrado, y cobro en efectivo o por transferencia). Se especificará aparte y se sumará al resumen como una unidad más. Pendiente definir: costo de envío, si el precio total puede editarse a mano, si tiene gastos propios, si se autocompletan los clientes que repiten y si los clientes van separados de los mayoristas.

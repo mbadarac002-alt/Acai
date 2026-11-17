@@ -101,12 +101,12 @@ El resto se probó a mano en un navegador real durante T11 a T13, con una base d
 - **Capturas de pantalla:** la herramienta no funcionó en este entorno; la revisión visual se hizo midiendo y leyendo la página, no mirando la imagen.
 - **Uso simultáneo:** dos cargas del mismo cierre a la vez están protegidas por el índice único de la base (responde 409), pero no se probó con dos usuarios reales.
 
-## Ajustes al spec que quedan para T15
+## Ajustes al spec (hechos en T15)
 
-1. La sección 9.8 menciona archivos de prueba con nombres que no existen (`test/caja.test.js`); hay que listar los reales.
-2. `avisos` incluye solo los puntos de venta con al menos un día sin cierre; el spec no lo decía. Dejarlo escrito.
-3. Dejar escrito que los archivos `public/static/caja.js` y `caja-calculo.js` se sirven sin clave, como el resto de los estáticos (no contienen datos).
-4. Pasar el estado de "borrador" a "implementado" y actualizar la sección 3 (`config` con los precios del bowl) y el README.
+1. La sección 9.8 ahora lista los archivos de prueba reales.
+2. Se aclaró que `avisos` incluye solo los puntos de venta con al menos un día sin cierre.
+3. Se dejó escrito que `public/static/caja.js` y `caja-calculo.js` se sirven sin clave, como el resto de los estáticos (no contienen datos).
+4. El spec pasó de "borrador" a "implementado"; se actualizaron la sección 3 (precios del bowl), la 5, la 7 y la 8, y el README describe la caja.
 
 ## Preguntas abiertas del spec (no bloquean)
 

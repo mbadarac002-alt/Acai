@@ -1,10 +1,10 @@
 # Plan de implementación · Módulo de caja
 
-> **Estado: PROVISORIO (v3).** Ajustado a la sección 9 de [spec.md](spec.md) en su versión 3, que sigue pendiente de aprobación. Si el propietario cambia algo del spec, se ajustan las tareas afectadas. Nada de este plan está implementado.
+> **Estado: TERMINADO.** Las 15 tareas están implementadas y verificadas contra la sección 9 de [spec.md](spec.md) (ver [verificacion-caja.md](verificacion-caja.md)). El plan se conserva como registro de cómo se hizo.
 
 Metodología: Specification Driven Development. Cada tarea sigue el mismo ciclo: **primero el test** que expresa el criterio de aceptación, **después el código**, y se corren todos los tests (`npm test`) antes de pasar a la siguiente. No se hacen commits sin que el propietario del repositorio lo pida.
 
-**Decisión de estructura (a confirmar):** el código de caja va en archivos nuevos, `src/caja-reglas.js` (reglas puras, testeables) y `src/caja.js` (rutas y acceso a datos), para no seguir engordando `src/server.js`, que hoy mezcla rutas, reglas y SQL.
+**Decisión de estructura (confirmada):** el código de caja va en archivos nuevos, `src/caja-reglas.js` (reglas puras, testeables) y `src/caja.js` (rutas y acceso a datos), para no seguir engordando `src/server.js`, que hoy mezcla rutas, reglas y SQL.
 
 ## Fase A · Base
 
@@ -51,14 +51,15 @@ Metodología: Specification Driven Development. Cada tarea sigue el mismo ciclo:
 | # | Tarea | Terminada cuando |
 |---|---|---|
 | T14 | Verificación contra el spec | Se recorren los criterios de 9.7 uno por uno, marcando cuáles se cumplen y cómo se comprobó |
-| T15 | Documentación | `spec.md` pasa de "borrador" a "implementado" (incluida la sección 3, `config`, con las claves nuevas) y el README describe la caja |
+| T15 | Documentación | `spec.md` pasa de "borrador" a "implementado" (incluida la sección 3, con los precios del bowl) y el README describe la caja |
 
-## Qué depende de las respuestas del propietario
+## Preguntas que siguen abiertas
 
-Ya no queda ninguna pregunta que bloquee el inicio: **T1 puede empezar apenas se apruebe el spec**. Quedan abiertas las de la sección 9.10:
+Ninguna bloqueó el desarrollo. Siguen abiertas en la sección 9.10 del spec:
 
-| Pregunta | Efecto en el plan |
+| Pregunta | Efecto |
 |---|---|
-| 1. ¿Alcanza con agregar un cambio de precio corregido con la misma fecha, o hay que recalcular cierres ya cargados? | Si hay que recalcular, se agrega una tarea después de T5 |
-| 2. ¿Es aceptable que eliminar un pedido cobrado lo saque del resumen de días pasados? | Solo cambia el spec, no el plan |
-| 3. ¿Hace falta ver el costo de la mercadería asociado a las ventas? | Si sí, agrega tareas en la Fase D; por ahora no |
+| Si un precio del bowl se cargó mal: ¿alcanza con cargar otro con la misma fecha, o hay que poder recalcular cierres ya cargados? | Si hay que recalcular, se agrega una tarea nueva sobre los cierres |
+| ¿Es aceptable que eliminar un pedido mayorista ya cobrado lo saque del resumen de días pasados? | Solo cambia el spec |
+| ¿Hace falta ver el costo de la mercadería asociado a las ventas? | Si sí, agrega tareas al resumen |
+| Delivery | Se especifica aparte y se suma como una unidad más del resumen |
