@@ -100,6 +100,82 @@ if (!db.prepare('PRAGMA table_info(pedidos)').all().some(c => c.name === 'cobro_
   db.exec('ALTER TABLE pedidos ADD COLUMN cobro_corregido_en TEXT');
 }
 
+// ---- Módulo de caja (spec 9.4) ----
+// Tablas nuevas: no tocan la estructura de las existentes. Los montos van en INTEGER (centavos).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS puntos_venta (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre  TEXT NOT NULL UNIQUE,
+    activo  INTEGER NOT NULL DEFAULT 1
+  );
+
+  -- Historial de precios del bowl: el precio vigente en una fecha F es la fila con mayor vigente_desde <= F.
+  CREATE TABLE IF NOT EXISTS precios_bowl (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    vigente_desde         TEXT NOT NULL UNIQUE,  -- YYYY-MM-DD
+    precio_efectivo       INTEGER NOT NULL CHECK (precio_efectivo > 0),
+    precio_transferencia  INTEGER NOT NULL CHECK (precio_transferencia > 0),
+    creado_en             TEXT NOT NULL          -- YYYY-MM-DD HH:MM (hora local)
+  );
+
+  CREATE TABLE IF NOT EXISTS cierres_caja (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    punto_venta_id              INTEGER NOT NULL REFERENCES puntos_venta(id),
+    fecha                       TEXT NOT NULL,  -- YYYY-MM-DD, día al que corresponde el cierre
+    tipo                        TEXT NOT NULL CHECK (tipo IN ('trabajado','no_trabajado','fin_temporada')),
+    motivo                      TEXT NOT NULL DEFAULT '',
+    fondo_inicial               INTEGER NOT NULL DEFAULT 0,
+    bowls_efectivo              INTEGER NOT NULL DEFAULT 0,
+    bowls_transferencia         INTEGER NOT NULL DEFAULT 0,
+    precio_bowl_efectivo        INTEGER,        -- precio vigente en la fecha del cierre (NULL si no trabajó)
+    precio_bowl_transferencia   INTEGER,
+    ingresos_efectivo           INTEGER NOT NULL DEFAULT 0,
+    ingresos_transferencia      INTEGER NOT NULL DEFAULT 0,
+    gastos                      INTEGER NOT NULL DEFAULT 0,
+    nota_gastos                 TEXT NOT NULL DEFAULT '',
+    efectivo_esperado           INTEGER NOT NULL DEFAULT 0,
+    efectivo_contado            INTEGER NOT NULL DEFAULT 0,
+    diferencia                  INTEGER NOT NULL DEFAULT 0,
+    nota_diferencia             TEXT NOT NULL DEFAULT '',
+    creado_en                   TEXT NOT NULL,
+    actualizado_en              TEXT NOT NULL,
+    corregido_en                TEXT,
+    eliminado_en                TEXT,
+    motivo_eliminacion          TEXT
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS ux_cierres_punto_fecha
+    ON cierres_caja (punto_venta_id, fecha) WHERE eliminado_en IS NULL;
+
+  CREATE TABLE IF NOT EXISTS categorias_gasto (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre  TEXT NOT NULL UNIQUE,
+    tipo    TEXT NOT NULL CHECK (tipo IN ('corriente','stock'))
+  );
+
+  CREATE TABLE IF NOT EXISTS gastos_generales (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha               TEXT NOT NULL,  -- YYYY-MM-DD de la compra
+    monto               INTEGER NOT NULL CHECK (monto > 0),
+    categoria_id        INTEGER NOT NULL REFERENCES categorias_gasto(id),
+    nota                TEXT NOT NULL DEFAULT '',
+    creado_en           TEXT NOT NULL,
+    actualizado_en      TEXT NOT NULL,
+    corregido_en        TEXT,
+    eliminado_en        TEXT,
+    motivo_eliminacion  TEXT
+  );
+`);
+
+const insertPunto = db.prepare('INSERT OR IGNORE INTO puntos_venta (nombre) VALUES (?)');
+for (const n of ['Miramar 1', 'Miramar 2', 'Chapadmalal']) insertPunto.run(n);
+
+const insertCategoria = db.prepare('INSERT OR IGNORE INTO categorias_gasto (nombre, tipo) VALUES (?, ?)');
+for (const [n, t] of [
+  ['mercadería', 'stock'], ['envases y descartables', 'stock'],
+  ['publicidad', 'corriente'], ['transporte', 'corriente'], ['servicios y alquileres', 'corriente'],
+  ['sueldos', 'corriente'], ['otros', 'corriente'],
+]) insertCategoria.run(n, t);
+
 const DEFAULTS = {
   precio_balde: '10000',
   umbral_baldes: '20',

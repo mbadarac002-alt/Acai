@@ -54,7 +54,41 @@ Si el propietario cambia de celular no hay que hacer nada: Telegram está atado 
 - **Entrega:** los **martes y viernes**. Cada pedido se entrega el día de entrega más cercano. Un pedido hecho un martes o un viernes antes de la hora de corte se entrega ese mismo día; si se hace en o después de la hora de corte, se entrega el siguiente día de entrega (martes → viernes, viernes → martes). Un pedido hecho cualquier otro día va al próximo martes o viernes.
 - **Descuento:** el propietario define un umbral de baldes y un porcentaje. Se suman los baldes del cliente en pedidos del mes calendario en curso, incluido el pedido actual. Si el total alcanza el umbral, el descuento se aplica al total de ese pedido y de los siguientes de ese mes. El conteo se reinicia el día 1 de cada mes.
 - **Estados:** Recibido → En proceso → Entregado → Cobrado (se cambian desde el panel).
-- **Cobro:** al pasar un pedido a *Cobrado*, el panel pide la forma de pago: contado, transferencia o una combinación indicando cuánto fue de cada una (deben sumar el total del pedido). El detalle queda visible bajo el estado y se guarda para la futura administración de caja. Cobrado es definitivo: un pedido cobrado ya no puede cambiar de estado. Si se cargó mal la forma de pago, el botón **Corregir cobro** permite modificarla (los montos nuevos también deben sumar el total); el panel indica que fue corregido y cuándo.
+- **Cobro:** al pasar un pedido a *Cobrado*, el panel pide la forma de pago: contado, transferencia o una combinación indicando cuánto fue de cada una (deben sumar el total del pedido). El detalle queda visible bajo el estado y alimenta las ventas mayoristas del resumen de caja. Cobrado es definitivo: un pedido cobrado ya no puede cambiar de estado. Si se cargó mal la forma de pago, el botón **Corregir cobro** permite modificarla (los montos nuevos también deben sumar el total); el panel indica que fue corregido y cuándo.
+
+## Administración de caja
+
+En el panel hay una pestaña **Caja** con tres vistas. Las reglas completas están en la sección 9 de [spec.md](spec.md); lo verificado, en [verificacion-caja.md](verificacion-caja.md).
+
+**Antes de empezar:** en **Configuración → Precio del bowl** se cargan los dos precios del bowl (**efectivo** y **transferencia**) y desde qué fecha rigen. Cada cambio se agrega al historial; los anteriores no se pierden.
+
+### Cierre diario
+
+Hay tres puntos de venta (Miramar 1, Miramar 2 y Chapadmalal). Los vendedores no usan el sistema: le rinden al propietario y **él carga el cierre de cada día**, de uno de tres tipos:
+
+- **Trabajó:** fondo inicial, bowls vendidos en efectivo y por transferencia, gastos del día (siempre pagados en efectivo) y efectivo contado. El sistema calcula en vivo las ventas, el **efectivo esperado** (`fondo + efectivo - gastos`), la **diferencia** con lo contado y la **utilidad del día** (`ventas - gastos`). Si hay diferencia, el cierre se guarda igual pero hay que explicarla.
+- **No trabajó:** se informa el motivo (por ejemplo, lluvia). Hay que cargar algo todos los días, aunque no se trabaje.
+- **Fin de temporada:** deja de esperarse el cierre diario de ese punto de venta hasta que se cargue un cierre nuevo.
+
+**El precio de cada bowl es el que regía el día del cierre**, aunque se cargue después, y queda guardado en el cierre: cambiar los precios no modifica cierres ya cargados. Un cierre se puede **corregir** o **eliminar** (con motivo); lo eliminado no cuenta y la fecha queda libre.
+
+### Gastos generales
+
+Gastos del negocio sin punto de venta (mercadería, envases y descartables, publicidad, transporte, servicios y alquileres, sueldos, otros). Cada gasto cuenta **entero en el día de su fecha**, sin repartirse entre meses. Se pueden corregir y eliminar (con motivo).
+
+### Resumen
+
+Rango de fechas con atajos (hoy, esta semana, este mes, últimos 30 días), visto como total, día por día, semana por semana (lunes a domingo) o mes por mes, sin ocultar los períodos sin movimientos.
+
+- **Ventas totales** = ventas mayoristas (salen solas de los pedidos *cobrados*, el día del cobro) + ventas de los puntos de venta.
+- **Utilidad relativa** = ventas totales − gastos de los puntos de venta (no descuenta los gastos generales).
+- **Resultado** = utilidad relativa − gastos generales del período.
+
+Además muestra el desglose por punto de venta (bowls, ventas, gastos, utilidad, días trabajados y diferencia de caja), los **avisos** de días sin cierre (informativos: no bloquean nada) y los días no trabajados con su motivo. Con las compras de stock, un mes con una compra grande puede verse flojo: la cifra más confiable es el total de la temporada.
+
+### Uso desde el celular
+
+El panel se adapta a celular, tablet y PC: en pantallas chicas los listados se muestran como tarjetas y los campos son cómodos para el dedo. Se usa desde el navegador del teléfono.
 
 ## Configuración (variables de entorno)
 
@@ -86,3 +120,5 @@ Railway bloquea SMTP en sus planes Trial y Hobby, por eso para mails se usa Rese
 ```bash
 npm test
 ```
+
+Incluye las pruebas de los pedidos mayoristas y las del módulo de caja (`test/caja-*.test.js`).

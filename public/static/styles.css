@@ -72,3 +72,70 @@ dialog .acciones { display: flex; gap: 10px; justify-content: flex-end; margin-t
 tr.eliminado td { opacity: .55; font-style: italic; }
 button.peligro { background: #fff; color: var(--error); border: 1px solid var(--error); padding: 6px 10px; font-size: .85rem; }
 button.peligro:hover { background: var(--error-bg); }
+
+/* ---- Caja ---- */
+.segmentado { display: flex; gap: 8px; flex-wrap: wrap; }
+.segmentado label { flex: 1 1 140px; margin: 0; padding: 12px 10px; text-align: center; font-weight: 600; cursor: pointer; background: #fff; color: var(--acai); border: 1px solid var(--borde); border-radius: 10px; position: relative; }
+.segmentado label.activo { background: var(--acai); color: #fff; border-color: var(--acai); }
+.segmentado input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.segmentado label:focus-within { outline: 2px solid var(--acai-2); outline-offset: 2px; }
+.calculo { background: var(--acai-claro); border-radius: 12px; padding: 14px; margin: 14px 0; }
+.calculo h3 { margin: 0 0 8px; font-size: .95rem; color: var(--acai); }
+.calculo dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; margin: 0; }
+.calculo dt { color: var(--muted); }
+.calculo dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.calculo .grande { font-size: 1.2rem; }
+.dif-ok { color: var(--ok); }
+.dif-falta { color: var(--error); }
+.dif-sobra { color: #8a5a00; }
+.aviso { background: #fff4e0; color: #8a5a00; border-radius: 8px; padding: 12px 14px; margin: 0 0 14px; }
+.aviso a { color: inherit; font-weight: 600; }
+.acciones-fila { white-space: nowrap; }
+.acciones-fila button { margin-right: 6px; padding: 6px 10px; font-size: .85rem; }
+.nota { font-size: .82rem; color: var(--muted); white-space: normal; }
+
+/* Tablas de caja compactas para que entren en pantallas medianas sin deslizar de costado. */
+table.tarjetas th, table.tarjetas td { padding: 8px 5px; font-size: .85rem; }
+table.tarjetas th { white-space: normal; line-height: 1.2; vertical-align: bottom; }
+table.tarjetas td.ancho-texto { white-space: normal; min-width: 110px; max-width: 190px; }
+
+/* Celulares y tablets en vertical: botones cómodos para el dedo y listados como tarjetas en lugar de tablas anchas. */
+@media (max-width: 900px) {
+  button, select, input { min-height: 44px; }
+  header .wrap { padding-top: 0; }
+  .card { padding: 14px; }
+  table.tarjetas, table.tarjetas thead, table.tarjetas tbody, table.tarjetas tr, table.tarjetas td { display: block; }
+  table.tarjetas thead { display: none; }
+  table.tarjetas tr { border: 1px solid var(--borde); border-radius: 12px; padding: 8px 12px; margin-bottom: 12px; background: #fff; }
+  table.tarjetas td { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border: 0; padding: 4px 0; white-space: normal; text-align: right; }
+  table.tarjetas td::before { content: attr(data-label); color: var(--muted); font-weight: 600; font-size: .75rem; text-transform: uppercase; text-align: left; flex: none; }
+  table.tarjetas td.acciones-fila { justify-content: flex-start; flex-wrap: wrap; gap: 8px; padding-top: 10px; }
+  table.tarjetas td.acciones-fila::before { content: none; }
+  table.tarjetas td.acciones-fila button { margin: 0; min-height: 44px; font-size: .95rem; }
+  table.tarjetas td.vacio-celda { display: none; }
+  table.tarjetas tr.eliminado td { opacity: .6; }
+  .tabla-wrap:has(table.tarjetas) { overflow-x: visible; }
+}
+
+/* Resumen */
+.atajos { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.atajos button { padding: 8px 14px; }
+.stat .v.dif-ok { color: var(--ok); }
+.stat .v.dif-falta { color: var(--error); }
+.calculo dt.sub, .calculo dd.sub { padding-left: 14px; font-size: .9rem; color: var(--muted); font-weight: 400; }
+.calculo dt.fuerte, .calculo dd.fuerte { border-top: 1px solid var(--borde); padding-top: 8px; margin-top: 2px; color: var(--texto); font-weight: 700; }
+.calculo dd.fuerte.dif-ok { color: var(--ok); }
+.calculo dd.fuerte.dif-falta { color: var(--error); }
+.subtitulo { margin: 18px 0 8px; font-size: 1rem; color: var(--acai); }
+.aviso-pv { margin-bottom: 12px; }
+.chip { display: inline-block; background: #fff; border: 1px solid var(--borde); border-radius: 999px; padding: 2px 10px; margin: 4px 6px 0 0; font-size: .82rem; }
+.linea { padding: 3px 0; }
+.solo-celular { display: none; }
+table.tarjetas tr.sin-mov td { color: var(--muted); }
+@media (max-width: 900px) {
+  .solo-celular { display: inline; }
+}
+@media (max-width: 600px) {
+  #r_destacados { grid-template-columns: 1fr; }
+  #r_destacados .stat .v { overflow-wrap: anywhere; }
+}

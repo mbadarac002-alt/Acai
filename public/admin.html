@@ -29,11 +29,24 @@
       </div>
     </form>
   </dialog>
+  <dialog id="dlgMotivo">
+    <form id="formMotivo" method="dialog" novalidate>
+      <h2 id="motivoTitulo">Eliminar</h2>
+      <p class="hint" id="motivoDetalle"></p>
+      <div class="field"><label for="motivoTexto">Motivo <span class="hint">obligatorio</span></label><input id="motivoTexto" autocomplete="off"></div>
+      <div id="motivoMsg"></div>
+      <div class="acciones">
+        <button type="button" class="secundario" id="motivoCancelar">Cancelar</button>
+        <button type="submit" class="peligro" id="motivoConfirmar">Eliminar</button>
+      </div>
+    </form>
+  </dialog>
   <main class="wrap">
     <div class="stats" id="stats"></div>
     <div class="tabs">
       <button data-tab="pedidos" class="activo">Pedidos</button>
       <button data-tab="clientes">Clientes</button>
+      <button data-tab="caja">Caja</button>
       <button data-tab="config">Configuración</button>
     </div>
 
@@ -89,6 +102,186 @@
       <p class="vacio" id="clientesVacio" hidden>No hay clientes registrados.</p>
     </section>
 
+    <div id="tab-caja" hidden>
+      <div class="tabs" id="cajaVistas">
+        <button type="button" data-vista="cierre" class="activo">Cierre diario</button>
+        <button type="button" data-vista="gastos">Gastos generales</button>
+        <button type="button" data-vista="resumen">Resumen</button>
+      </div>
+
+      <div id="vista-cierre">
+        <section class="card">
+          <h2 id="cierreTitulo">Cargar cierre del día</h2>
+          <div class="aviso" id="cierreSinPrecios" hidden></div>
+          <form id="cierreForm" novalidate>
+            <div class="grid">
+              <div class="field"><label for="c_pv">Punto de venta</label><select id="c_pv"></select></div>
+              <div class="field"><label for="c_fecha">Fecha del cierre</label><input id="c_fecha" type="date"></div>
+            </div>
+            <div class="field"><label>¿Cómo fue el día?</label>
+              <div class="segmentado" id="c_tipo">
+                <label><input type="radio" name="c_tipo" value="trabajado" checked> Trabajó</label>
+                <label><input type="radio" name="c_tipo" value="no_trabajado"> No trabajó</label>
+                <label><input type="radio" name="c_tipo" value="fin_temporada"> Fin de temporada</label>
+              </div></div>
+
+            <div id="c_trabajado">
+              <div class="grid">
+                <div class="field"><label for="c_fondo">Fondo inicial ($) <span class="hint">para vueltos</span></label><input id="c_fondo" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+                <div class="field"><label for="c_bowls_ef">Bowls vendidos en efectivo</label><input id="c_bowls_ef" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>
+                <div class="field"><label for="c_bowls_tr">Bowls vendidos por transferencia</label><input id="c_bowls_tr" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>
+                <div class="field"><label for="c_gastos">Gastos del día ($) <span class="hint">pagados en efectivo</span></label><input id="c_gastos" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+                <div class="field"><label for="c_contado">Efectivo contado al cerrar ($) <span class="hint">incluye el fondo</span></label><input id="c_contado" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+              </div>
+              <div class="field"><label for="c_nota_gastos">Detalle de los gastos <span class="hint">opcional, ej. hielo, nafta</span></label><input id="c_nota_gastos" autocomplete="off"></div>
+              <div class="calculo" aria-live="polite">
+                <h3>Cuenta del día</h3>
+                <dl>
+                  <dt>Precio del bowl</dt><dd id="k_precios">—</dd>
+                  <dt>Ventas en efectivo</dt><dd id="k_ventas_ef">—</dd>
+                  <dt>Ventas por transferencia</dt><dd id="k_ventas_tr">—</dd>
+                  <dt>Ventas del día</dt><dd class="grande" id="k_ventas">—</dd>
+                  <dt>Efectivo esperado en caja <span class="hint">fondo + efectivo − gastos</span></dt><dd id="k_esperado">—</dd>
+                  <dt>Diferencia <span class="hint">contado − esperado</span></dt><dd class="grande" id="k_dif">—</dd>
+                  <dt>Utilidad del día <span class="hint">ventas − gastos</span></dt><dd class="grande" id="k_utilidad">—</dd>
+                </dl>
+              </div>
+              <div class="field" id="c_nota_dif_box" hidden><label for="c_nota_dif">Explicá la diferencia <span class="hint">obligatorio: el efectivo contado no coincide con el esperado</span></label><input id="c_nota_dif" autocomplete="off"></div>
+            </div>
+
+            <div class="field" id="c_motivo_box" hidden><label for="c_motivo" id="c_motivo_label">Motivo</label><input id="c_motivo" autocomplete="off" placeholder="Ej.: lluvia, feriado"></div>
+
+            <div id="cierreMsg"></div>
+            <button type="submit" id="cierreGuardar">Guardar cierre</button>
+            <button type="button" class="secundario" id="cierreCancelar" hidden>Cancelar corrección</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>Cierres cargados</h2>
+          <form id="cierresFiltros" novalidate>
+            <div class="grid">
+              <div class="field"><label for="cf_pv">Punto de venta</label><select id="cf_pv" name="punto_venta_id"></select></div>
+              <div class="field"><label for="cf_desde">Desde</label><input id="cf_desde" name="desde" type="date"></div>
+              <div class="field"><label for="cf_hasta">Hasta</label><input id="cf_hasta" name="hasta" type="date"></div>
+              <div class="field"><label for="cf_eliminados">Eliminados</label>
+                <select id="cf_eliminados" name="eliminados">
+                  <option value="">Ocultar eliminados</option>
+                  <option value="solo">Ver solo eliminados</option>
+                  <option value="todos">Ver activos y eliminados</option>
+                </select></div>
+            </div>
+            <div id="cierresFiltrosMsg"></div>
+          </form>
+          <div class="tabla-wrap"><table class="tarjetas">
+            <thead><tr><th>Fecha</th><th>Punto de venta</th><th>Día</th><th class="num">Bowls (ef. + transf.)</th><th class="num">Ventas</th><th class="num">Gastos</th><th class="num">Esperado</th><th class="num">Contado</th><th class="num">Diferencia</th><th class="num">Utilidad</th><th></th></tr></thead>
+            <tbody id="cierres"></tbody>
+          </table></div>
+          <p class="vacio" id="cierresVacio" hidden>No hay cierres con esos filtros.</p>
+        </section>
+      </div>
+
+      <div id="vista-gastos" hidden>
+        <section class="card">
+          <h2 id="gastoTitulo">Cargar gasto general</h2>
+          <p class="hint">Gastos del negocio que no son de un punto de venta: baldes de açaí, envases, publicidad, etc. Cada gasto cuenta entero en el día de su fecha.</p>
+          <form id="gastoForm" novalidate>
+            <div class="grid">
+              <div class="field"><label for="g_fecha">Fecha del gasto</label><input id="g_fecha" type="date"></div>
+              <div class="field"><label for="g_categoria">Categoría</label><select id="g_categoria"></select></div>
+              <div class="field"><label for="g_monto">Monto ($)</label><input id="g_monto" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+            </div>
+            <div class="field"><label for="g_nota">Detalle <span class="hint">opcional, ej. 15 baldes de açaí</span></label><input id="g_nota" autocomplete="off"></div>
+            <div id="gastoMsg"></div>
+            <button type="submit" id="gastoGuardar">Guardar gasto</button>
+            <button type="button" class="secundario" id="gastoCancelar" hidden>Cancelar corrección</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>Gastos cargados</h2>
+          <form id="gastosFiltros" novalidate>
+            <div class="grid">
+              <div class="field"><label for="gf_categoria">Categoría</label><select id="gf_categoria" name="categoria_id"></select></div>
+              <div class="field"><label for="gf_desde">Desde</label><input id="gf_desde" name="desde" type="date"></div>
+              <div class="field"><label for="gf_hasta">Hasta</label><input id="gf_hasta" name="hasta" type="date"></div>
+              <div class="field"><label for="gf_eliminados">Eliminados</label>
+                <select id="gf_eliminados" name="eliminados">
+                  <option value="">Ocultar eliminados</option>
+                  <option value="solo">Ver solo eliminados</option>
+                  <option value="todos">Ver activos y eliminados</option>
+                </select></div>
+            </div>
+            <div id="gastosFiltrosMsg"></div>
+          </form>
+          <p class="hint" id="gastosTotales" style="margin-top:12px"></p>
+          <div class="tabla-wrap"><table class="tarjetas">
+            <thead><tr><th>Fecha</th><th>Categoría</th><th>Tipo</th><th class="num">Monto</th><th>Detalle</th><th></th></tr></thead>
+            <tbody id="gastos"></tbody>
+          </table></div>
+          <p class="vacio" id="gastosVacio" hidden>No hay gastos con esos filtros.</p>
+        </section>
+      </div>
+      <div id="vista-resumen" hidden>
+        <section class="card">
+          <h2>Resumen</h2>
+          <form id="resumenForm" novalidate>
+            <div class="atajos" id="r_atajos">
+              <button type="button" class="secundario" data-preset="hoy">Hoy</button>
+              <button type="button" class="secundario" data-preset="semana">Esta semana</button>
+              <button type="button" class="secundario" data-preset="mes">Este mes</button>
+              <button type="button" class="secundario" data-preset="30dias">Últimos 30 días</button>
+            </div>
+            <div class="grid">
+              <div class="field"><label for="r_desde">Desde</label><input id="r_desde" type="date"></div>
+              <div class="field"><label for="r_hasta">Hasta</label><input id="r_hasta" type="date"></div>
+              <div class="field"><label for="r_agrupar">Ver</label>
+                <select id="r_agrupar">
+                  <option value="total">Total del rango</option>
+                  <option value="dia">Día por día</option>
+                  <option value="semana">Semana por semana</option>
+                  <option value="mes">Mes por mes</option>
+                </select></div>
+            </div>
+            <div id="resumenMsg"></div>
+          </form>
+        </section>
+
+        <div id="resumenResultado" hidden>
+          <div class="stats" id="r_destacados"></div>
+
+          <section class="card">
+            <h2>La cuenta completa</h2>
+            <div class="calculo"><dl id="r_cuenta"></dl></div>
+            <div class="aviso" id="r_aviso_stock" hidden>Las compras de stock (mercadería y envases) se descuentan enteras en el período de su fecha. Un mes con una compra grande puede verse flojo aunque se haya vendido bien: la cifra más confiable es el total de toda la temporada.</div>
+          </section>
+
+          <section class="card" id="r_periodos_card" hidden>
+            <h2 id="r_periodos_titulo"></h2>
+            <div class="tabla-wrap"><table class="tarjetas">
+              <thead><tr><th>Período</th><th class="num">Ventas totales</th><th class="num">Gastos puntos de venta</th><th class="num">Utilidad relativa</th><th class="num">Gastos generales</th><th class="num">Resultado</th></tr></thead>
+              <tbody id="r_periodos"></tbody>
+            </table></div>
+          </section>
+
+          <section class="card">
+            <h2>Por punto de venta</h2>
+            <div class="tabla-wrap"><table class="tarjetas">
+              <thead><tr><th>Punto de venta</th><th class="num">Bowls (ef. + transf.)</th><th class="num">Ventas</th><th class="num">Gastos</th><th class="num">Utilidad</th><th class="num">Días trabajados</th><th class="num">Días no trabajados</th><th class="num">Diferencia de caja</th></tr></thead>
+              <tbody id="r_puntos"></tbody>
+            </table></div>
+          </section>
+
+          <section class="card">
+            <h2>Avisos</h2>
+            <p class="hint">Son solo informativos: el resultado se calcula igual con lo que esté cargado. Se cuentan desde el primer cierre de cada punto de venta hasta ayer; después de un fin de temporada no se avisa nada.</p>
+            <div id="r_avisos"></div>
+            <h3 class="subtitulo">Días no trabajados</h3>
+            <div id="r_no_trabajados"></div>
+          </section>
+        </div>
+      </div>
+    </div>
     <section class="card" id="tab-config" hidden>
       <h2>Configuración</h2>
       <form id="configForm" novalidate>
@@ -96,6 +289,24 @@
           <div class="field"><label for="precio_balde">Precio por balde ($)</label><input id="precio_balde" name="precio_balde" type="number" min="0" step="0.01"></div>
           <div class="field"><label for="hora_corte">Hora de corte (martes y viernes) <span class="hint">un pedido hecho un martes o viernes antes de esta hora se entrega ese mismo día; si es después, el próximo día de entrega</span></label><input id="hora_corte" name="hora_corte" type="time"></div>
         </div>
+        <h2 style="margin-top:10px">Precio del bowl (venta en la playa)</h2>
+        <div class="grid">
+          <div class="field"><label for="precio_bowl_efectivo">Precio en efectivo ($)</label><input id="precio_bowl_efectivo" name="precio_bowl_efectivo" type="number" min="0" step="0.01"></div>
+          <div class="field"><label for="precio_bowl_transferencia">Precio por transferencia ($)</label><input id="precio_bowl_transferencia" name="precio_bowl_transferencia" type="number" min="0" step="0.01"></div>
+          <div class="field"><label for="precio_bowl_desde">Rige desde <span class="hint">vacío = desde hoy</span></label><input id="precio_bowl_desde" name="precio_bowl_desde" type="date"></div>
+        </div>
+        <p class="hint" id="bowlVigente"></p>
+        <p class="hint">Cada cierre de caja usa el precio que regía el día al que corresponde, aunque se cargue después. Para cargar días anteriores al primer precio, poné ese primer precio con una fecha de vigencia anterior. Si cambiás los precios, los cierres ya cargados no se modifican.</p>
+        <details class="hint" style="margin:6px 0 14px">
+          <summary><strong>Historial de precios del bowl</strong></summary>
+          <div class="tabla-wrap">
+            <table>
+              <thead><tr><th>Rige desde</th><th class="num">Efectivo</th><th class="num">Transferencia</th></tr></thead>
+              <tbody id="bowlHistorial"></tbody>
+            </table>
+          </div>
+          <p class="vacio" id="bowlHistorialVacio" hidden>Todavía no hay precios cargados.</p>
+        </details>
         <h2 style="margin-top:10px">Notificaciones de nuevos pedidos</h2>
         <div class="grid">
           <div class="field"><label for="canal_notificacion">Quiero recibir los avisos por</label>
@@ -131,6 +342,8 @@
     </section>
   </main>
 
+<script src="/static/caja-calculo.js"></script>
+<script src="/static/caja.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const pesos = n => '$' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -143,10 +356,11 @@ const api = (url, opts = {}) => fetch('/api/admin' + url, {
 
 function td(text, cls) { const c = document.createElement('td'); c.textContent = text; if (cls) c.className = cls; return c; }
 
-document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
-  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('activo', x === b));
-  ['pedidos', 'clientes', 'config'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
+document.querySelectorAll('.tabs button[data-tab]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button[data-tab]').forEach(x => x.classList.toggle('activo', x === b));
+  ['pedidos', 'clientes', 'caja', 'config'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
   if (b.dataset.tab === 'clientes') cargarClientes();
+  if (b.dataset.tab === 'caja') Caja.mostrar();
 }));
 
 async function cargarStats() {
@@ -308,7 +522,19 @@ async function cargarClientes() {
 
 async function cargarConfig() {
   const c = await api('/config');
-  for (const [k, v] of Object.entries(c)) { const el = document.getElementById(k); if (el) el.value = v; }
+  for (const [k, v] of Object.entries(c)) { const el = document.getElementById(k); if (el) el.value = v ?? ''; }
+  $('#bowlVigente').textContent = c.precio_bowl_efectivo == null
+    ? 'Todavía no hay precios del bowl cargados: hacen falta para poder cargar cierres de caja.'
+    : `Hoy rigen: ${pesos(c.precio_bowl_efectivo)} en efectivo y ${pesos(c.precio_bowl_transferencia)} por transferencia (desde el ${ddmm(c.precio_bowl_vigente_desde)}).`;
+  $('#precio_bowl_desde').value = ''; // la fecha es siempre de un cambio nuevo
+  const precios = await api('/caja/precios');
+  const tb = $('#bowlHistorial'); tb.innerHTML = '';
+  $('#bowlHistorialVacio').hidden = precios.length > 0;
+  precios.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.append(td(ddmm(p.vigente_desde)), td(pesos(p.precio_efectivo), 'num'), td(pesos(p.precio_transferencia), 'num'));
+    tb.appendChild(tr);
+  });
 }
 
 $('#configForm').addEventListener('submit', async e => {
@@ -319,7 +545,7 @@ $('#configForm').addEventListener('submit', async e => {
   try {
     await api('/config', { method: 'PUT', body: JSON.stringify(data) });
     box.className = 'msg ok'; box.textContent = 'Configuración guardada.';
-    cargarClientes();
+    cargarClientes(); cargarConfig();
   } catch (errs) {
     box.className = 'msg error'; box.textContent = errs.join(' ');
   }
@@ -331,6 +557,7 @@ $('#filtros').addEventListener('input', () => { clearTimeout(debounce); debounce
 $('#filtros').addEventListener('submit', e => e.preventDefault());
 $('#limpiarFiltros').addEventListener('click', () => { $('#filtros').reset(); cargarPedidos(); });
 cargarStats(); cargarPedidos(); cargarConfig();
+Caja.iniciar({ api, $, pesos, ddmm, irAConfiguracion: () => document.querySelector('.tabs button[data-tab="config"]').click() });
 </script>
 </body>
 </html>
